@@ -34,7 +34,7 @@ func countMDFiles(dir string) int {
 		return 0
 	}
 	count := 0
-	filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+	if err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -45,7 +45,9 @@ func countMDFiles(dir string) int {
 			count++
 		}
 		return nil
-	})
+	}); err != nil {
+		return 0
+	}
 	return count
 }
 

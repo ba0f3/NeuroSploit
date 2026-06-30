@@ -260,9 +260,9 @@ func DoLogin(ctx context.Context, l *Login) (string, string, error) {
 	var req *http.Request
 	var err error
 	if strings.ToUpper(l.Method) == "GET" {
-		u, err := url.Parse(l.URL)
-		if err != nil {
-			return "", "", fmt.Errorf("parse login URL: %w", err)
+		u, parseErr := url.Parse(l.URL)
+		if parseErr != nil {
+			return "", "", fmt.Errorf("parse login URL: %w", parseErr)
 		}
 		q := u.Query()
 		for k, v := range form {
@@ -286,7 +286,7 @@ func DoLogin(ctx context.Context, l *Login) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("login request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	status := resp.StatusCode
 	var cookiePairs []string

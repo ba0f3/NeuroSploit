@@ -52,7 +52,7 @@ func TestChatSuccess(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"choices": []map[string]interface{}{
 				{"message": map[string]interface{}{"content": "hello"}},
 			},
@@ -61,10 +61,8 @@ func TestChatSuccess(t *testing.T) {
 	defer server.Close()
 
 	client := ChatClient{http: server.Client()}
-	os.Setenv("LITELLM_BASE_URL", server.URL)
-	defer os.Unsetenv("LITELLM_BASE_URL")
-	os.Setenv("LITELLM_API_KEY", "test-key")
-	defer os.Unsetenv("LITELLM_API_KEY")
+	t.Setenv("LITELLM_BASE_URL", server.URL)
+	t.Setenv("LITELLM_API_KEY", "test-key")
 
 	got, err := client.Chat(context.Background(), ModelRef{Provider: "litellm", Model: "gpt-4o"}, "sys", "user")
 	if err != nil {
@@ -77,8 +75,8 @@ func TestChatSuccess(t *testing.T) {
 
 func TestChatMissingKey(t *testing.T) {
 	client := NewChatClient()
-	os.Unsetenv("ANTHROPIC_API_KEY")
-	os.Unsetenv("GOOGLE_API_KEY")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "")
 	if _, err := client.Chat(context.Background(), ModelRefParse("anthropic:claude-opus-4-8"), "s", "u"); err == nil {
 		t.Errorf("expected error for missing key")
 	}

@@ -136,11 +136,12 @@ func (c ChatClient) Chat(ctx context.Context, m ModelRef, system, user string) (
 			strings.TrimRight(endpoint, "/"), m.Model, ver)
 	} else {
 		base := p.BaseURL
-		if p.Key == "litellm" {
+		switch p.Key {
+		case "litellm":
 			if b := os.Getenv("LITELLM_BASE_URL"); b != "" {
 				base = b
 			}
-		} else if p.Key == "ollama" {
+		case "ollama":
 			if b := os.Getenv("OLLAMA_BASE_URL"); b != "" {
 				base = b
 			}
@@ -176,7 +177,7 @@ func (c ChatClient) Chat(ctx context.Context, m ModelRef, system, user string) (
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	text, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("%s returned %d: %s", p.Key, resp.StatusCode, truncate(string(text), 200))
@@ -243,7 +244,9 @@ func (c ChatClient) ChatCLI(ctx context.Context, label, provider, model, system,
 			return "", fmt.Errorf("%s: %w", bin, err)
 		}
 	case <-time.After(10 * time.Minute):
-		cmd.Process.Kill()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
 		return "", fmt.Errorf("%s subscription CLI timed out after 600s", bin)
 	}
 	stdout := strings.TrimSpace(outBuf.String())
@@ -336,7 +339,9 @@ func chatClaudeStream(ctx context.Context, label, model, prompt, mcpConfig strin
 	select {
 	case <-readDone:
 	case <-time.After(15 * time.Minute):
-		cmd.Process.Kill()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
 		return "", fmt.Errorf("claude stream timed out after 900s")
 	}
 	_ = cmd.Wait()

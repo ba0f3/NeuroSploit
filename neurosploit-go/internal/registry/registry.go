@@ -29,7 +29,7 @@ func (r *Registry) Load(path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var out []types.Finding
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
@@ -63,7 +63,7 @@ func (r *Registry) Save(path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	w := bufio.NewWriter(f)
 	for _, finding := range r.findings {
 		data, err := json.Marshal(finding)
@@ -159,16 +159,4 @@ func normalizeVoteTags(s string) string {
 		out = append(out, part)
 	}
 	return strings.Join(out, " ")
-}
-
-func uniqueStrings(in []string) []string {
-	seen := make(map[string]struct{})
-	var out []string
-	for _, s := range in {
-		if _, ok := seen[s]; !ok && s != "" {
-			seen[s] = struct{}{}
-			out = append(out, s)
-		}
-	}
-	return out
 }

@@ -59,7 +59,7 @@ func loadDir(dir, kind string) []Agent {
 		return out
 	}
 
-	filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+	if err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -106,7 +106,9 @@ func loadDir(dir, kind string) []Agent {
 			User:   user,
 		})
 		return nil
-	})
+	}); err != nil {
+		return out
+	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out

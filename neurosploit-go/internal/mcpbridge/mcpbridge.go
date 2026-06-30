@@ -139,7 +139,7 @@ func handleWebFetch(call ToolCall) Result {
 	if err != nil {
 		return Result{IsError: true, Error: fmt.Sprintf("web_fetch: %v", err)}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
 		return Result{IsError: true, Error: fmt.Sprintf("web_fetch: HTTP %d: %s", resp.StatusCode, string(body))}

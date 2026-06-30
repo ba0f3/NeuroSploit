@@ -9,11 +9,19 @@ import (
 	"strings"
 )
 
+func writef(out io.Writer, format string, args ...any) {
+	_, _ = fmt.Fprintf(out, format, args...)
+}
+
+func writel(out io.Writer, args ...any) {
+	_, _ = fmt.Fprintln(out, args...)
+}
+
 // Prompt reads a line from r with the given label.
 func Prompt(r *bufio.Reader, out io.Writer, label string) string {
-	fmt.Fprintf(out, "%s: ", label)
+	writef(out, "%s: ", label)
 	if w, ok := out.(*bufio.Writer); ok {
-		w.Flush()
+		_ = w.Flush()
 	}
 	line, _ := r.ReadString('\n')
 	return strings.TrimSpace(line)
@@ -24,9 +32,9 @@ func Select(r *bufio.Reader, out io.Writer, label string, items []string) int {
 	if len(items) == 0 {
 		return -1
 	}
-	fmt.Fprintln(out, label)
+	writel(out, label)
 	for i, item := range items {
-		fmt.Fprintf(out, "  %d) %s\n", i+1, item)
+		writef(out, "  %d) %s\n", i+1, item)
 	}
 	for {
 		s := Prompt(r, out, "choice")
@@ -37,7 +45,7 @@ func Select(r *bufio.Reader, out io.Writer, label string, items []string) int {
 		if err == nil && n >= 1 && n <= len(items) {
 			return n - 1
 		}
-		fmt.Fprintln(out, "invalid choice")
+		writel(out, "invalid choice")
 	}
 }
 
@@ -46,9 +54,9 @@ func MultiSelect(r *bufio.Reader, out io.Writer, label string, items []string) [
 	if len(items) == 0 {
 		return nil
 	}
-	fmt.Fprintf(out, "%s (enter comma-separated numbers, e.g. 1,3)\n", label)
+	writef(out, "%s (enter comma-separated numbers, e.g. 1,3)\n", label)
 	for i, item := range items {
-		fmt.Fprintf(out, "  %d) %s\n", i+1, item)
+		writef(out, "  %d) %s\n", i+1, item)
 	}
 	s := Prompt(r, out, "choices")
 	var outIdx []int
@@ -75,13 +83,13 @@ func Confirm(r *bufio.Reader, out io.Writer, label string) bool {
 		if s == "n" || s == "no" || s == "" {
 			return false
 		}
-		fmt.Fprintln(out, "please answer y/n")
+		writel(out, "please answer y/n")
 	}
 }
 
 // Wizard runs a setup wizard and returns the target, models, and workdir.
 func Wizard(r *bufio.Reader, out io.Writer) (target string, models []string, workdir string) {
-	fmt.Fprintln(out, "=== NeuroSploit Setup Wizard ===")
+	writel(out, "=== NeuroSploit Setup Wizard ===")
 	target = Prompt(r, out, "Target URL")
 	workdir = Prompt(r, out, "Work directory")
 	if workdir == "" {
@@ -107,5 +115,5 @@ func Stdio() (io.Reader, io.Writer) {
 
 // Display prints a title and body.
 func Display(out io.Writer, title, body string) {
-	fmt.Fprintf(out, "\n--- %s ---\n%s\n", title, body)
+	writef(out, "\n--- %s ---\n%s\n", title, body)
 }

@@ -252,6 +252,7 @@ func (p *ModelPool) Vote(system, user string, n int, skip string) (int, int) {
 	}
 	panel := ordered[:n]
 	confirmed, total := 0, 0
+panelLoop:
 	for _, m := range panel {
 		select {
 		case p.Sem <- struct{}{}:
@@ -267,7 +268,7 @@ func (p *ModelPool) Vote(system, user string, n int, skip string) (int, int) {
 			}
 			<-p.Sem
 		default:
-			break
+			break panelLoop
 		}
 	}
 	return confirmed, total

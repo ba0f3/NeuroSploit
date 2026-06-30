@@ -11,6 +11,22 @@ import (
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
 )
 
+func writef(w *bufio.Writer, format string, args ...any) {
+	_, _ = fmt.Fprintf(w, format, args...)
+}
+
+func writel(w *bufio.Writer, args ...any) {
+	_, _ = fmt.Fprintln(w, args...)
+}
+
+func write(w *bufio.Writer, s string) {
+	_, _ = fmt.Fprint(w, s)
+}
+
+func flush(w *bufio.Writer) {
+	_ = w.Flush()
+}
+
 // Session holds interactive REPL configuration.
 type Session struct {
 	Models       []string
@@ -40,12 +56,12 @@ func NewSession() *Session {
 func (s *Session) Run(in io.Reader, out io.Writer) error {
 	r := bufio.NewReader(in)
 	w := bufio.NewWriter(out)
-	defer w.Flush()
+	defer flush(w)
 
-	fmt.Fprintln(w, "NeuroSploit interactive REPL. Type /help for commands.")
+	writel(w, "NeuroSploit interactive REPL. Type /help for commands.")
 	for {
-		fmt.Fprint(w, "ns> ")
-		w.Flush()
+		write(w, "ns> ")
+		flush(w)
 		line, err := r.ReadString('\n')
 		if err == io.EOF {
 			return nil
@@ -73,114 +89,111 @@ func (s *Session) handle(line string, w *bufio.Writer) error {
 
 	switch cmd {
 	case "/help", "/?":
-		fmt.Fprintln(w, strings.TrimSpace(helpText))
+		writel(w, strings.TrimSpace(helpText))
 	case "/show", "/config":
-		fmt.Fprintf(w, "target: %s\nmodels: %v\nsubscription: %v\nmcp: %v\nvote-n: %d\nmax-agents: %d\noffline: %v\n",
+		writef(w, "target: %s\nmodels: %v\nsubscription: %v\nmcp: %v\nvote-n: %d\nmax-agents: %d\noffline: %v\n",
 			s.Target, s.Models, s.Subscription, s.MCP, s.VoteN, s.MaxAgents, s.Offline)
 	case "/providers":
 		for _, p := range models.Providers() {
-			fmt.Fprintf(w, "%-12s %s\n", p.Key, p.Label)
+			writef(w, "%-12s %s\n", p.Key, p.Label)
 		}
 	case "/model":
 		if len(args) == 0 {
-			fmt.Fprintf(w, "models: %v\n", s.Models)
+			writef(w, "models: %v\n", s.Models)
 		} else {
 			s.Models = args
-			fmt.Fprintf(w, "models set to %v\n", s.Models)
+			writef(w, "models set to %v\n", s.Models)
 		}
 	case "/target":
 		if len(args) == 0 {
-			fmt.Fprintf(w, "target: %s\n", s.Target)
+			writef(w, "target: %s\n", s.Target)
 		} else {
 			s.Target = args[0]
-			fmt.Fprintf(w, "target set to %s\n", s.Target)
+			writef(w, "target set to %s\n", s.Target)
 		}
 	case "/repo":
 		if len(args) > 0 {
 			s.Repo = args[0]
-			fmt.Fprintf(w, "repo set to %s\n", s.Repo)
+			writef(w, "repo set to %s\n", s.Repo)
 		} else {
-			fmt.Fprintf(w, "repo: %s\n", s.Repo)
+			writef(w, "repo: %s\n", s.Repo)
 		}
 	case "/auth":
 		if len(args) > 0 {
 			s.Auth = strings.Join(args, " ")
-			fmt.Fprintln(w, "auth header set")
+			writel(w, "auth header set")
 		} else {
-			fmt.Fprintf(w, "auth: %s\n", s.Auth)
+			writef(w, "auth: %s\n", s.Auth)
 		}
 	case "/focus":
 		if len(args) > 0 {
 			s.Focus = strings.Join(args, " ")
-			fmt.Fprintf(w, "focus set to %s\n", s.Focus)
+			writef(w, "focus set to %s\n", s.Focus)
 		} else {
-			fmt.Fprintf(w, "focus: %s\n", s.Focus)
+			writef(w, "focus: %s\n", s.Focus)
 		}
 	case "/offline":
 		s.Offline = !s.Offline
-		fmt.Fprintf(w, "offline: %v\n", s.Offline)
+		writef(w, "offline: %v\n", s.Offline)
 	case "/subscription", "/sub":
 		s.Subscription = !s.Subscription
-		fmt.Fprintf(w, "subscription: %v\n", s.Subscription)
+		writef(w, "subscription: %v\n", s.Subscription)
 	case "/mcp":
 		s.MCP = !s.MCP
-		fmt.Fprintf(w, "mcp: %v\n", s.MCP)
+		writef(w, "mcp: %v\n", s.MCP)
 	case "/votes":
 		if len(args) > 0 {
-			fmt.Sscanf(args[0], "%d", &s.VoteN)
+			_, _ = fmt.Sscanf(args[0], "%d", &s.VoteN)
 		}
-		fmt.Fprintf(w, "vote-n: %d\n", s.VoteN)
+		writef(w, "vote-n: %d\n", s.VoteN)
 	case "/max-agents":
 		if len(args) > 0 {
-			fmt.Sscanf(args[0], "%d", &s.MaxAgents)
+			_, _ = fmt.Sscanf(args[0], "%d", &s.MaxAgents)
 		}
-		fmt.Fprintf(w, "max-agents: %d\n", s.MaxAgents)
+		writef(w, "max-agents: %d\n", s.MaxAgents)
 	case "/run":
 		if s.Target == "" {
-			fmt.Fprintln(w, "set a target first with /target")
+			writel(w, "set a target first with /target")
 			return nil
 		}
 		if s.running {
-			fmt.Fprintln(w, "run already in progress")
+			writel(w, "run already in progress")
 			return nil
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		s.cancel = cancel
 		s.running = true
-		fmt.Fprintf(w, "starting run against %s\n", s.Target)
+		writef(w, "starting run against %s\n", s.Target)
 		go s.backgroundRun(ctx, w)
 	case "/stop":
 		if s.cancel != nil {
 			s.cancel()
 		}
 		s.running = false
-		fmt.Fprintln(w, "run stopped")
+		writel(w, "run stopped")
 	case "/continue":
-		fmt.Fprintln(w, "continue: not implemented in this port")
+		writel(w, "continue: not implemented in this port")
 	case "/status":
 		if s.running {
-			fmt.Fprintf(w, "running against %s\n", s.Target)
+			writef(w, "running against %s\n", s.Target)
 		} else {
-			fmt.Fprintln(w, "idle")
+			writel(w, "idle")
 		}
 	case "/results", "/report":
-		fmt.Fprintln(w, "results: not implemented in this port")
+		writel(w, "results: not implemented in this port")
 	case "/quit", "/exit":
 		return io.EOF
 	default:
-		fmt.Fprintf(w, "unknown command: %s (type /help)\n", cmd)
+		writef(w, "unknown command: %s (type /help)\n", cmd)
 	}
 	return nil
 }
 
 func (s *Session) backgroundRun(ctx context.Context, w *bufio.Writer) {
 	defer func() { s.running = false }()
-	// Minimal placeholder: just sleep until cancelled or print completion.
-	select {
-	case <-ctx.Done():
-		fmt.Fprintln(w, "run cancelled")
-	}
-	w.Flush()
+	<-ctx.Done()
+	writel(w, "run cancelled")
+	flush(w)
 }
 
 func (s *Session) RunConfig() types.RunConfig {
@@ -228,6 +241,6 @@ Available commands:
 // HandleLine is a convenience for testing.
 func (s *Session) HandleLine(line string, out io.Writer) error {
 	w := bufio.NewWriter(out)
-	defer w.Flush()
+	defer flush(w)
 	return s.handle(line, w)
 }

@@ -116,7 +116,7 @@ func TestLoginWithCookie(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: "session", Value: "abc123"})
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	}))
 	defer server.Close()
 
@@ -137,7 +137,7 @@ func TestLoginWithJSONToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, `{"access_token":"tokxyz"}`)
+		_, _ = fmt.Fprintln(w, `{"access_token":"tokxyz"}`)
 	}))
 	defer server.Close()
 

@@ -57,7 +57,10 @@ func TestMayAssert(t *testing.T) {
 
 	wm.Add("lowP", belief.KindVuln, "low probability vuln", 0.1)
 	err = MayAssert(wm, "lowP", pol)
-	if err == nil || !(strings.Contains(err.Error(), "too low") || strings.Contains(err.Error(), "low")) {
+	if err == nil {
+		t.Fatalf("expected low probability error, got nil")
+	}
+	if !strings.Contains(err.Error(), "too low") && !strings.Contains(err.Error(), "low") {
 		t.Fatalf("expected low probability error, got %v", err)
 	}
 

@@ -68,10 +68,14 @@ func TestAgentsCmd(t *testing.T) {
 
 func TestOfflineRun(t *testing.T) {
 	dir := t.TempDir()
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chdir("/home/tui/repos/NeuroSploit/neurosploit-go")
+	defer func() { _ = os.Chdir(origDir) }()
 
 	out, err := execute(t, rootCmd(), "run", "http://example.com", "--offline", "--max-agents", "2", "-v")
 	if err != nil {
