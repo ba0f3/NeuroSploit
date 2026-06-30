@@ -9,10 +9,11 @@ import (
 func TestGateKeepsEmpiricalReceipt(t *testing.T) {
 	findings := []types.Finding{
 		{
-			ID:       "emp-1",
-			Endpoint: "http://example.com/login",
-			Evidence: "HTTP/1.1 200 OK\nServer: nginx\nContent-Type: text/html",
-			Votes:    "",
+			ID:         "emp-1",
+			Endpoint:   "http://example.com/login",
+			Evidence:   "HTTP/1.1 200 OK\nServer: nginx\nContent-Type: text/html",
+			Votes:      "",
+			Validated:  true,
 		},
 	}
 
@@ -50,10 +51,11 @@ func TestGateDemotesParaphraseOnly(t *testing.T) {
 func TestGateWhiteboxSymbolicMatch(t *testing.T) {
 	findings := []types.Finding{
 		{
-			ID:       "sym-1",
-			Endpoint: "main.go:42",
-			Evidence: "...",
-			Votes:    "",
+			ID:        "sym-1",
+			Endpoint:  "main.go:42",
+			Evidence:  "...",
+			Votes:     "",
+			Validated: true,
 		},
 	}
 
