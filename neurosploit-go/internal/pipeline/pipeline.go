@@ -1,4 +1,4 @@
-package runner
+package pipeline
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/creds"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/grounding"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/hygiene"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/models"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pomdp"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pool"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/registry"
@@ -18,15 +19,23 @@ import (
 
 // Runner orchestrates the reconnaissance-exploitation-validation loop.
 type Runner struct {
-	Pool     *pool.ModelPool
+	Pool     PoolClient
 	Registry *registry.Registry
 	World    *belief.WorldModel
 	Policy   pomdp.Policy
 	Creds    *creds.Creds
 }
 
+// PoolClient is the subset of pool.ModelPool used by the pipeline (testable interface).
+type PoolClient interface {
+	Complete(label string, task pool.Task, system, user string) (models.ModelRef, string, error)
+	Vote(system, user string, n int, skip string) (int, int)
+	IsCancelled() bool
+	IsStopped() bool
+}
+
 // New creates a Runner.
-func New(p *pool.ModelPool, reg *registry.Registry, wm *belief.WorldModel, cr *creds.Creds) *Runner {
+func New(p PoolClient, reg *registry.Registry, wm *belief.WorldModel, cr *creds.Creds) *Runner {
 	if wm == nil {
 		wm = &belief.WorldModel{Nodes: map[string]belief.Node{}}
 	}
