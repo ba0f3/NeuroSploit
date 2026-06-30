@@ -1,5 +1,7 @@
 package types
 
+import "strings"
+
 // Finding represents a validated (or candidate) security finding.
 type Finding struct {
 	ID             string   `json:"id"`
@@ -22,6 +24,23 @@ type Finding struct {
 	Exploitability string   `json:"exploitability"`
 	BusinessImpact string   `json:"business_impact"`
 	ChainsFrom     []string `json:"chains_from"`
+}
+
+// SeverityRank returns a numeric rank for severity strings (critical=4, high=3, medium=2, low=1).
+func SeverityRank(severity string) int {
+	s := strings.ToLower(severity)
+	switch {
+	case strings.HasPrefix(s, "crit"):
+		return 4
+	case strings.HasPrefix(s, "high"):
+		return 3
+	case strings.HasPrefix(s, "med"):
+		return 2
+	case strings.HasPrefix(s, "low"):
+		return 1
+	default:
+		return 0
+	}
 }
 
 // DefaultFinding returns a Finding with sensible zero values.

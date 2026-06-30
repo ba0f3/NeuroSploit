@@ -51,7 +51,7 @@ func Providers() []Provider {
 		{Key: "litellm", Label: "LiteLLM (proxy)", BaseURL: "http://localhost:4000/v1", EnvKey: "LITELLM_API_KEY", Kind: "api",
 			Models: []string{"gpt-4o", "claude-3-7-sonnet", "gemini/gemini-2.5-pro"}},
 		{Key: "openrouter", Label: "OpenRouter", BaseURL: "https://openrouter.ai/api/v1", EnvKey: "OPENROUTER_API_KEY", Kind: "api",
-			Models: []string{"anthropic/claude-opus-4-8", "qwen/qwen-2.5-coder-32b-instruct", "deepseek/deepseek-r1", "meta-llama/llama-3.3-70b-instruct"}},
+			Models: []string{"anthropic/claude-opus-4-8", "qwen/qwen-2.5-coder-32b-instruct", "deepseek/deepseek-v4-pro", "meta-llama/llama-3.3-70b-instruct"}},
 		{Key: "azure", Label: "Azure OpenAI", BaseURL: "", EnvKey: "AZURE_OPENAI_API_KEY", Kind: "api",
 			Models: []string{"gpt-4o", "gpt-4o-mini", "gpt-5.1", "o4-mini"}},
 		{Key: "ollama", Label: "Ollama (local)", BaseURL: "http://localhost:11434/v1", EnvKey: "OLLAMA_API_KEY", Kind: "api",
@@ -264,7 +264,6 @@ func (c ChatClient) ChatCLI(ctx context.Context, label, provider, model, system,
 	return stdout, nil
 }
 
-
 func chatClaudeStream(ctx context.Context, label, model, prompt, mcpConfig string, progress chan<- string) (string, error) {
 	cmd := exec.CommandContext(ctx, "claude", "-p", "--model", model, "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions")
 	cmd.Env = append(os.Environ(), "IS_SANDBOX=1")
@@ -392,7 +391,6 @@ func MCPSupported(provider string) bool {
 	return provider == "anthropic" || provider == "openai"
 }
 
-
 // EnsurePlaywrightMCP best-effort pre-warms the Playwright MCP package.
 func EnsurePlaywrightMCP() error {
 	if !BinaryInPath("npx") {
@@ -451,4 +449,3 @@ func truncate(s string, n int) string {
 	}
 	return string(runes[:n]) + "…"
 }
-

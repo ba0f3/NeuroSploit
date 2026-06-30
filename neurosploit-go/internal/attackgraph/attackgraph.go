@@ -104,23 +104,6 @@ func stageRank(s string) int {
 	return len(STAGE_ORDER)
 }
 
-func sevRank(s string) int {
-	l := strings.ToLower(s)
-	if strings.HasPrefix(l, "crit") {
-		return 4
-	}
-	if strings.HasPrefix(l, "high") {
-		return 3
-	}
-	if strings.HasPrefix(l, "med") {
-		return 2
-	}
-	if strings.HasPrefix(l, "low") {
-		return 1
-	}
-	return 0
-}
-
 // Mermaid renders a Mermaid flowchart of the attack path.
 func Mermaid(findings []types.Finding) string {
 	if len(findings) == 0 {
@@ -201,7 +184,7 @@ func ASCIIKillchain(findings []types.Finding) string {
 		group := byStage[r]
 		for i := range group {
 			for j := i + 1; j < len(group); j++ {
-				if sevRank(group[i].Severity) < sevRank(group[j].Severity) {
+				if types.SeverityRank(group[i].Severity) < types.SeverityRank(group[j].Severity) {
 					group[i], group[j] = group[j], group[i]
 				}
 			}

@@ -68,11 +68,12 @@ func (r *Runner) Run(ctx context.Context, cfg types.RunConfig) error {
 		if action.Type == "stop" {
 			break
 		}
-		if action.Type == "exploit" {
+		switch action.Type {
+		case "exploit":
 			if err := r.exploit(ctx, cfg, action.Node); err != nil {
 				return err
 			}
-		} else if action.Type == "recon" {
+		case "recon":
 			if err := r.recon(ctx, cfg, action.Node); err != nil {
 				return err
 			}

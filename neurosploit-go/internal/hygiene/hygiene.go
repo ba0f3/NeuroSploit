@@ -40,22 +40,6 @@ func hostOf(endpoint string) string {
 	return strings.ToLower(s)
 }
 
-func sevRank(severity string) int {
-	s := strings.ToLower(severity)
-	switch {
-	case strings.HasPrefix(s, "crit"):
-		return 4
-	case strings.HasPrefix(s, "high"):
-		return 3
-	case strings.HasPrefix(s, "med"):
-		return 2
-	case strings.HasPrefix(s, "low"):
-		return 1
-	default:
-		return 0
-	}
-}
-
 func short(s string) string {
 	runes := []rune(s)
 	if len(runes) <= 64 {
@@ -131,7 +115,7 @@ func Calibrate(findings *[]types.Finding) []string {
 	var notes []string
 	for i := range *findings {
 		f := &(*findings)[i]
-		if sevRank(f.Severity) >= 3 && looksUnproven(f) {
+		if types.SeverityRank(f.Severity) >= 3 && looksUnproven(f) {
 			old := f.Severity
 			f.Severity = "Medium"
 			if f.Confidence > 0.5 {
@@ -155,7 +139,7 @@ func DepthAudit(findings []types.Finding) []string {
 	exploited := make(map[string]struct{})
 	for i := range findings {
 		f := &findings[i]
-		if !isExposure(f) && sevRank(f.Severity) >= 2 {
+		if !isExposure(f) && types.SeverityRank(f.Severity) >= 2 {
 			exploited[hostOf(f.Endpoint)] = struct{}{}
 		}
 	}
