@@ -39,6 +39,26 @@ go test ./... -timeout 30s
 go vet ./...
 ```
 
+## Release build
+
+Embedded agents (no `agents_md/` on disk required):
+
+```bash
+make build-release    # sync agents_md → agentsdata, build with -tags embed_agents
+make release          # alias for build-release
+./neurosploit --version
+```
+
+From the repo root, cut a release with [GoReleaser](https://goreleaser.com):
+
+```bash
+# local snapshot (no publish)
+cd neurosploit-go && make goreleaser-snapshot
+
+# tag push triggers .github/workflows/go-release.yml
+git tag v3.6.0 && git push origin v3.6.0
+```
+
 ## Documentation
 
 - `docs/AGENTS.md` — contributor guide for agent authors.

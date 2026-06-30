@@ -11,7 +11,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -105,8 +107,9 @@ func (m ModelRef) Label() string {
 
 // ChatClient is an OpenAI-compatible chat client.
 type ChatClient struct {
-	http    *http.Client
-	Verbose bool
+	http            *http.Client
+	Verbose         bool
+	CursorWorkspace string // repo root for cursor --workspace (subscription login scope)
 }
 
 // NewChatClient creates a ChatClient.
@@ -118,7 +121,15 @@ func logCLI(verbose bool, cmd *exec.Cmd) {
 	if !verbose {
 		return
 	}
-	_, _ = fmt.Fprintf(os.Stderr, "cli> %s\n", cmd.String())
+	line := cmd.Path
+	for _, a := range cmd.Args[1:] {
+		if strings.Contains(a, "\n") || len(a) > 120 {
+			line += " \"<redacted>\""
+			continue
+		}
+		line += " " + strconv.Quote(a)
+	}
+	_, _ = fmt.Fprintf(os.Stderr, "cli> %s\n", line)
 }
 
 // Chat performs one HTTP chat completion.
@@ -230,7 +241,7 @@ func (c ChatClient) ChatCLI(ctx context.Context, label, provider, model, system,
 		return chatClaudeStream(ctx, label, model, prompt, mcpConfig, c.Verbose, progress)
 	}
 	if bin == "agent" || bin == "cursor-agent" {
-		return chatCursorCLI(ctx, bin, model, prompt, mcpConfig, c.Verbose)
+		return chatCursorCLI(ctx, bin, label, model, prompt, mcpConfig, c.CursorWorkspace, c.Verbose, progress)
 	}
 	args := []string{bin}
 	switch bin {
@@ -305,54 +316,12 @@ func chatClaudeStream(ctx context.Context, label, model, prompt, mcpConfig strin
 
 	var result string
 	var hadErr string
-	emit := func(s string) {
-		if progress != nil && s != "" {
-			lbl := ""
-			if label != "" {
-				lbl = "@" + label + " "
-			}
-			select {
-			case progress <- lbl + s:
-			default:
-			}
-		}
-	}
+	emit := cliProgressEmitter(label, progress, verbose)
 
 	readDone := make(chan struct{})
 	go func() {
 		defer close(readDone)
-		sc := bufio.NewScanner(stdoutPipe)
-		for sc.Scan() {
-			line := sc.Text()
-			var v map[string]interface{}
-			if err := json.Unmarshal([]byte(line), &v); err != nil {
-				continue
-			}
-			typ, _ := v["type"].(string)
-			switch typ {
-			case "assistant":
-				if msg, ok := v["message"].(map[string]interface{}); ok {
-					if content, ok := msg["content"].([]interface{}); ok {
-						for _, blk := range content {
-							if b, ok := blk.(map[string]interface{}); ok {
-								if t, _ := b["type"].(string); t == "text" {
-									if txt, ok := b["text"].(string); ok {
-										emit("ai: " + truncate(txt, 240))
-									}
-								}
-							}
-						}
-					}
-				}
-			case "result":
-				if r, ok := v["result"].(string); ok {
-					result = r
-				}
-				if isErr, _ := v["is_error"].(bool); isErr {
-					hadErr, _ = v["result"].(string)
-				}
-			}
-		}
+		result, hadErr = consumeCLIStream(stdoutPipe, emit)
 	}()
 
 	select {
@@ -373,23 +342,235 @@ func chatClaudeStream(ctx context.Context, label, model, prompt, mcpConfig strin
 	return result, nil
 }
 
-func chatCursorCLI(ctx context.Context, bin, model, prompt, mcpConfig string, verbose bool) (string, error) {
+func cliProgressEmitter(label string, progress chan<- string, verbose bool) func(string) {
+	return func(s string) {
+		if progress == nil || s == "" {
+			return
+		}
+		if strings.HasPrefix(s, "ai: ") && !verbose {
+			return
+		}
+		lbl := ""
+		if label != "" {
+			lbl = "@" + label + " "
+		}
+		select {
+		case progress <- lbl + s:
+		default:
+		}
+	}
+}
+
+func consumeCLIStream(r io.Reader, emit func(string)) (result, hadErr string) {
+	sc := bufio.NewScanner(r)
+	// Cursor stream-json lines can be large (tool payloads).
+	buf := make([]byte, 0, 64*1024)
+	sc.Buffer(buf, 1024*1024)
+	for sc.Scan() {
+		line := sc.Text()
+		var v map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &v); err != nil {
+			continue
+		}
+		typ, _ := v["type"].(string)
+		switch typ {
+		case "assistant":
+			if msg, ok := v["message"].(map[string]interface{}); ok {
+				if content, ok := msg["content"].([]interface{}); ok {
+					for _, blk := range content {
+						b, ok := blk.(map[string]interface{})
+						if !ok {
+							continue
+						}
+						switch t, _ := b["type"].(string); t {
+						case "text":
+							if txt, ok := b["text"].(string); ok {
+								txt = strings.TrimSpace(txt)
+								if txt != "" {
+									emit("ai: " + truncate(txt, 240))
+								}
+							}
+						case "tool_use":
+							name, _ := b["name"].(string)
+							var input map[string]interface{}
+							if in, ok := b["input"].(map[string]interface{}); ok {
+								input = in
+							}
+							emit(toolEvent(name, input))
+						}
+					}
+				}
+			}
+		case "result":
+			if r, ok := v["result"].(string); ok {
+				result = r
+			}
+			ti, _ := jsonNumber(v, "usage", "input_tokens")
+			to, _ := jsonNumber(v, "usage", "output_tokens")
+			cost, _ := v["total_cost_usd"].(float64)
+			if ti > 0 || to > 0 || cost > 0 {
+				emit(fmt.Sprintf("tokens: in=%d out=%d cost=$%.4f", ti, to, cost))
+			}
+			if isErr, _ := v["is_error"].(bool); isErr {
+				hadErr, _ = v["result"].(string)
+			}
+		}
+	}
+	return result, hadErr
+}
+
+func jsonNumber(v map[string]interface{}, keys ...string) (int64, bool) {
+	cur := interface{}(v)
+	for _, k := range keys {
+		m, ok := cur.(map[string]interface{})
+		if !ok {
+			return 0, false
+		}
+		cur = m[k]
+	}
+	switch n := cur.(type) {
+	case float64:
+		return int64(n), true
+	case int64:
+		return n, true
+	case int:
+		return int64(n), true
+	default:
+		return 0, false
+	}
+}
+
+func toolEvent(name string, input map[string]interface{}) string {
+	s := func(k string) string {
+		if input == nil {
+			return ""
+		}
+		if v, ok := input[k].(string); ok {
+			return v
+		}
+		return ""
+	}
+	switch name {
+	case "Bash":
+		c := s("command")
+		danger := strings.Contains(c, "rm -rf") || strings.Contains(c, "mkfs") ||
+			strings.Contains(c, ":(){") || strings.Contains(c, "dd if=") || strings.Contains(c, "> /dev/")
+		if danger {
+			return "danger: " + truncate(c, 200)
+		}
+		return "exec: " + truncate(c, 200)
+	case "Read":
+		return "read: " + s("file_path")
+	case "Write", "Edit":
+		return "edit: " + s("file_path")
+	case "Grep":
+		return "tool: grep " + truncate(s("pattern"), 80)
+	case "Glob":
+		return "tool: glob " + truncate(s("pattern"), 80)
+	case "WebFetch":
+		return "net: fetch " + s("url")
+	default:
+		if strings.Contains(strings.ToLower(name), "playwright") || strings.Contains(strings.ToLower(name), "browser") {
+			url := s("url")
+			if url != "" {
+				return "net: browser " + name + " " + url
+			}
+			return "net: browser " + name
+		}
+		return "tool: " + name
+	}
+}
+
+var cursorCLIMu sync.Mutex
+
+func chatCursorCLI(ctx context.Context, bin, label, model, prompt, mcpConfig, workspace string, verbose bool, progress chan<- string) (string, error) {
+	cursorCLIMu.Lock()
+	defer cursorCLIMu.Unlock()
+
 	path, err := exec.LookPath(bin)
 	if err != nil {
 		return "", fmt.Errorf("spawn %s failed: %w", bin, err)
 	}
-	args, workdir, err := cursorCLIArgs(model, prompt, mcpConfig)
+	baseDir := ""
+	if mcpConfig != "" {
+		abs, err := filepath.Abs(mcpConfig)
+		if err != nil {
+			return "", fmt.Errorf("mcp config path: %w", err)
+		}
+		mcpConfig = abs
+		baseDir = filepath.Dir(abs)
+	} else {
+		baseDir, _ = os.Getwd()
+	}
+	promptPath, err := writeCLIPromptFile(baseDir, prompt)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = os.Remove(promptPath) }()
+
+	stream := progress != nil
+	args, workdir, err := cursorCLIArgs(model, promptPath, mcpConfig, workspace, stream)
 	if err != nil {
 		return "", err
 	}
 	cmd := exec.CommandContext(ctx, path, args...)
-	if workdir != "" {
-		cmd.Dir = workdir
+	cmd.Dir = workdir
+	stdin, err := os.Open(os.DevNull)
+	if err != nil {
+		return "", fmt.Errorf("open stdin: %w", err)
 	}
+	defer stdin.Close()
+	cmd.Stdin = stdin
+
+	emit := cliProgressEmitter(label, progress, verbose)
+	if label != "" {
+		emit("notify: started")
+	}
+
+	logCLI(verbose, cmd)
+
+	if stream {
+		stdoutPipe, err := cmd.StdoutPipe()
+		if err != nil {
+			return "", err
+		}
+		var errBuf bytes.Buffer
+		cmd.Stderr = &errBuf
+		if err := cmd.Start(); err != nil {
+			return "", fmt.Errorf("spawn %s failed: %w", bin, err)
+		}
+		readDone := make(chan struct{})
+		var result, hadErr string
+		go func() {
+			defer close(readDone)
+			result, hadErr = consumeCLIStream(stdoutPipe, emit)
+		}()
+		select {
+		case <-readDone:
+		case <-time.After(15 * time.Minute):
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+			return "", fmt.Errorf("%s stream timed out after 900s", bin)
+		}
+		if err := cmd.Wait(); err != nil {
+			detail := cursorCLIErrorDetail(errBuf.String(), "")
+			return "", fmt.Errorf("%s: %w: %s", bin, err, detail)
+		}
+		if hadErr != "" && result == "" {
+			return "", fmt.Errorf("%s: %s", bin, truncate(hadErr, 240))
+		}
+		if strings.TrimSpace(result) == "" {
+			detail := cursorCLIErrorDetail(errBuf.String(), "")
+			return "", fmt.Errorf("%s returned empty output: %s", bin, detail)
+		}
+		emit("notify: finished")
+		return result, nil
+	}
+
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
-	logCLI(verbose, cmd)
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("spawn %s failed: %w", bin, err)
 	}
@@ -398,14 +579,8 @@ func chatCursorCLI(ctx context.Context, bin, model, prompt, mcpConfig string, ve
 	select {
 	case err := <-done:
 		if err != nil {
-			detail := strings.TrimSpace(errBuf.String())
-			if detail == "" {
-				detail = strings.TrimSpace(outBuf.String())
-			}
-			if detail == "" {
-				detail = "no output"
-			}
-			return "", fmt.Errorf("%s: %w: %s", bin, err, truncate(detail, 240))
+			detail := cursorCLIErrorDetail(errBuf.String(), outBuf.String())
+			return "", fmt.Errorf("%s: %w: %s", bin, err, detail)
 		}
 	case <-time.After(10 * time.Minute):
 		if cmd.Process != nil {
@@ -413,32 +588,142 @@ func chatCursorCLI(ctx context.Context, bin, model, prompt, mcpConfig string, ve
 		}
 		return "", fmt.Errorf("%s timed out after 600s", bin)
 	}
-	stdout := strings.TrimSpace(outBuf.String())
-	if stdout == "" {
-		detail := strings.TrimSpace(errBuf.String())
-		if detail == "" {
-			detail = "no output"
-		}
-		return "", fmt.Errorf("%s returned empty output: %s", bin, truncate(detail, 240))
+	result, err := parseCursorOutput(outBuf.String())
+	if err != nil {
+		return "", fmt.Errorf("%s: %w (%s)", bin, err, cursorCLIErrorDetail(errBuf.String(), outBuf.String()))
 	}
-	return stdout, nil
+	if strings.TrimSpace(result) == "" {
+		detail := cursorCLIErrorDetail(errBuf.String(), outBuf.String())
+		return "", fmt.Errorf("%s returned empty output: %s", bin, detail)
+	}
+	return result, nil
 }
 
-// cursorCLIArgs builds headless Cursor Agent CLI flags. Prompt is positional;
-// --force and --approve-mcps are required for non-interactive MCP use.
-func cursorCLIArgs(model, prompt, mcpConfig string) (args []string, workdir string, err error) {
-	args = []string{"-p", "--model", model, "--output-format", "text", "--trust", "--force"}
-	if mcpConfig != "" {
-		abs, err := filepath.Abs(mcpConfig)
-		if err != nil {
-			return nil, "", fmt.Errorf("mcp config path: %w", err)
-		}
-		mcpConfig = abs
-		workdir = filepath.Dir(abs)
-		args = append(args, "--approve-mcps", "--mcp-config", mcpConfig)
+// writeCLIPromptFile stores agent instructions on disk so the Cursor CLI can read
+// them without embedding untrusted content in argv (avoids injection and arg limits).
+func writeCLIPromptFile(dir, prompt string) (string, error) {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", err
 	}
-	args = append(args, prompt)
+	f, err := os.CreateTemp(dir, ".ns-prompt-*.md")
+	if err != nil {
+		return "", err
+	}
+	path := f.Name()
+	if _, err := f.WriteString(prompt); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return "", err
+	}
+	if err := f.Chmod(0600); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+	return path, nil
+}
+
+// cursorCLIArgs builds headless Cursor Agent CLI flags. The only argv prompt is a
+// short meta-instruction pointing at a prompt file; agent content is never argv.
+func cursorCLIArgs(model, promptPath, mcpConfig, workspace string, stream bool) (args []string, workdir string, err error) {
+	absPrompt, err := filepath.Abs(promptPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("prompt path: %w", err)
+	}
+	workdir = filepath.Dir(absPrompt)
+	ws := strings.TrimSpace(workspace)
+	if ws == "" {
+		ws = workdir
+	} else if abs, err := filepath.Abs(ws); err == nil {
+		ws = abs
+	}
+	format := "text"
+	if stream {
+		format = "stream-json"
+	}
+	args = []string{"-p", "--model", model, "--output-format", format, "--trust", "--force", "--workspace", ws}
+	if mcpConfig != "" {
+		args = append(args, "--approve-mcps")
+	}
+	meta := cursorMetaPrompt(absPrompt)
+	args = append(args, meta)
 	return args, workdir, nil
+}
+
+func cursorMetaPrompt(promptPath string) string {
+	abs, _ := filepath.Abs(promptPath)
+	return fmt.Sprintf(
+		"Read and follow all instructions in the file %s. Reply exactly as specified in that file.",
+		abs,
+	)
+}
+
+func cursorCLIErrorDetail(stderr, stdout string) string {
+	detail := strings.TrimSpace(stderr)
+	if detail == "" {
+		detail = strings.TrimSpace(stdout)
+	}
+	if detail == "" {
+		return "no output (try `agent update`; cursor headless needs a single serial invocation per workspace)"
+	}
+	return truncate(detail, 240)
+}
+
+// UsesCursorCLI reports whether any candidate routes through the Cursor agent binary.
+func UsesCursorCLI(refs []ModelRef) bool {
+	for _, m := range refs {
+		if m.Provider == "cursor" || m.Provider == "agent" {
+			return true
+		}
+	}
+	return false
+}
+
+// SubscriptionConcurrency returns the pool/exploit concurrency cap for subscription CLIs.
+func SubscriptionConcurrency(refs []ModelRef, requested int) int {
+	if requested < 1 {
+		requested = 1
+	}
+	if UsesCursorCLI(refs) {
+		return 1
+	}
+	if requested > 3 {
+		return 3
+	}
+	return requested
+}
+
+func parseCursorOutput(stdout string) (string, error) {
+	raw := strings.TrimSpace(stdout)
+	if raw == "" {
+		return "", fmt.Errorf("empty stdout")
+	}
+	var v struct {
+		Result  string `json:"result"`
+		IsError bool   `json:"is_error"`
+		Error   string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(raw), &v); err != nil {
+		return raw, nil
+	}
+	if v.IsError {
+		msg := strings.TrimSpace(v.Error)
+		if msg == "" {
+			msg = strings.TrimSpace(v.Result)
+		}
+		if msg == "" {
+			msg = "agent reported is_error"
+		}
+		return "", fmt.Errorf("%s", msg)
+	}
+	if strings.TrimSpace(v.Result) != "" {
+		return strings.TrimSpace(v.Result), nil
+	}
+	return raw, nil
 }
 
 // CLIBinaryFor maps a provider to its local agentic CLI binary.
@@ -503,11 +788,40 @@ func EnsurePlaywrightMCP(verbose bool) error {
 	return nil
 }
 
-// WriteMCPConfig writes an .mcp.json into dir and returns its path.
+// WriteMCPConfig writes Claude/Codex .mcp.json into dir and returns its path.
 func WriteMCPConfig(dir string, extraServers string) (string, error) {
+	data, err := marshalMCPConfig(extraServers)
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
+	path := filepath.Join(dir, ".mcp.json")
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// WriteCursorMCPConfig writes workspace/.cursor/mcp.json for the Cursor agent CLI.
+func WriteCursorMCPConfig(workspace string, extraServers string) (string, error) {
+	data, err := marshalMCPConfig(extraServers)
+	if err != nil {
+		return "", err
+	}
+	cursorDir := filepath.Join(workspace, ".cursor")
+	if err := os.MkdirAll(cursorDir, 0755); err != nil {
+		return "", err
+	}
+	path := filepath.Join(cursorDir, "mcp.json")
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func marshalMCPConfig(extraServers string) ([]byte, error) {
 	servers := map[string]interface{}{
 		"playwright": map[string]interface{}{
 			"command": "npx",
@@ -529,22 +843,7 @@ func WriteMCPConfig(dir string, extraServers string) (string, error) {
 		}
 	}
 	cfg := map[string]interface{}{"mcpServers": servers}
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	path := filepath.Join(dir, ".mcp.json")
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		return "", err
-	}
-	cursorDir := filepath.Join(dir, ".cursor")
-	if err := os.MkdirAll(cursorDir, 0755); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(filepath.Join(cursorDir, "mcp.json"), data, 0644); err != nil {
-		return "", err
-	}
-	return path, nil
+	return json.MarshalIndent(cfg, "", "  ")
 }
 
 func truncate(s string, n int) string {

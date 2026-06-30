@@ -104,8 +104,11 @@ data/repl_runs.json
 data/repl_history.txt
 .neurosploit/
 /tmp/*
-
+.cursor/
 # Cloned source repos (whitebox/greybox from a git URL)
 repos/
 neurosploit-rs/repos/
-/neurosploit-go/neurosploit
+# Go port build artifacts
+neurosploit-go/neurosploit
+neurosploit-go/internal/agents/agentsdata/**
+!neurosploit-go/internal/agents/agentsdata/.gitkeep

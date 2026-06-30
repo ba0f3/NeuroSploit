@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
@@ -63,6 +64,26 @@ func TestExtractFindingsSingleObject(t *testing.T) {
 	text := `{"title":"One","severity":"low","cwe":"CWE-79"}`
 	got := extractFindings(text, "agent")
 	if len(got) != 1 || got[0].Title != "One" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestStripCodeFences(t *testing.T) {
+	in := "```json {\"tech\":{\"server\":\"nginx\"}}"
+	got := stripCodeFences(in)
+	if strings.HasPrefix(got, "```") || !strings.HasPrefix(got, "{") {
+		t.Fatalf("stripCodeFences = %q", got)
+	}
+	fenced := "```json\n{\"a\":1}\n```"
+	if stripCodeFences(fenced) != `{"a":1}` {
+		t.Fatalf("multiline fence = %q", stripCodeFences(fenced))
+	}
+}
+
+func TestExtractFindingsFencedJSON(t *testing.T) {
+	text := "```json\n[{\"title\":\"SQLi\",\"severity\":\"high\",\"cwe\":\"CWE-89\",\"endpoint\":\"/x\",\"evidence\":\"ok\"}]\n```"
+	got := extractFindings(text, "sqli")
+	if len(got) != 1 || got[0].Title != "SQLi" {
 		t.Fatalf("got %+v", got)
 	}
 }

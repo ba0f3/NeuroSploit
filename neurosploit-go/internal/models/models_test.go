@@ -121,41 +121,156 @@ func TestWriteMCPConfig(t *testing.T) {
 	if !strings.Contains(string(data), "playwright") {
 		t.Errorf("config missing playwright server")
 	}
-	cursorPath := filepath.Join(dir, ".cursor", "mcp.json")
-	if _, err := os.Stat(cursorPath); err != nil {
-		t.Fatalf(".cursor/mcp.json missing: %v", err)
+	if strings.HasSuffix(path, ".mcp.json") == false {
+		t.Fatalf("path = %q", path)
+	}
+}
+
+func TestWriteCursorMCPConfig(t *testing.T) {
+	dir := t.TempDir()
+	path, err := WriteCursorMCPConfig(dir, "")
+	if err != nil {
+		t.Fatalf("WriteCursorMCPConfig failed: %v", err)
+	}
+	want := filepath.Join(dir, ".cursor", "mcp.json")
+	if path != want {
+		t.Fatalf("path = %q, want %q", path, want)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "playwright") {
+		t.Errorf("config missing playwright server")
 	}
 }
 
 func TestCursorCLIArgs(t *testing.T) {
-	args, workdir, err := cursorCLIArgs("auto", "hello", "")
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repo")
+	if err := os.MkdirAll(repo, 0755); err != nil {
+		t.Fatal(err)
+	}
+	runDir := filepath.Join(repo, "runs", "ns-test")
+	if err := os.MkdirAll(runDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	promptPath := filepath.Join(runDir, ".ns-prompt-test.md")
+	if err := os.WriteFile(promptPath, []byte("instructions"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	args, workdir, err := cursorCLIArgs("auto", promptPath, "", repo, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if workdir != "" {
-		t.Fatalf("workdir = %q, want empty", workdir)
+	if workdir != runDir {
+		t.Fatalf("workdir = %q, want %q", workdir, runDir)
 	}
-	if args[len(args)-1] != "hello" {
-		t.Fatalf("prompt not positional: %v", args)
-	}
-	if !containsAll(args, "--force", "--trust", "-p") {
+	if !containsAll(args, "--force", "--trust", "-p", "--workspace", repo, "--output-format", "stream-json") {
 		t.Fatalf("missing headless flags: %v", args)
 	}
+	meta := args[len(args)-1]
+	absPrompt, _ := filepath.Abs(promptPath)
+	if !strings.Contains(meta, absPrompt) {
+		t.Fatalf("meta prompt should reference file %q, got %q", absPrompt, meta)
+	}
 
-	dir := t.TempDir()
-	mcpPath := filepath.Join(dir, ".mcp.json")
+	mcpPath := filepath.Join(repo, ".cursor", "mcp.json")
+	if err := os.MkdirAll(filepath.Dir(mcpPath), 0755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(mcpPath, []byte(`{"mcpServers":{}}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	args, workdir, err = cursorCLIArgs("auto", "probe", mcpPath)
+	args, workdir, err = cursorCLIArgs("auto", promptPath, mcpPath, repo, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if workdir != dir {
-		t.Fatalf("workdir = %q, want %q", workdir, dir)
+	if workdir != runDir {
+		t.Fatalf("workdir = %q, want %q", workdir, runDir)
 	}
-	if !containsAll(args, "--approve-mcps", "--mcp-config", workdir) {
-		t.Fatalf("missing MCP flags: %v", args)
+	if !containsAll(args, "--approve-mcps") {
+		t.Fatalf("missing --approve-mcps: %v", args)
+	}
+	if containsAll(args, "--mcp-config") {
+		t.Fatalf("cursor must not use --mcp-config: %v", args)
+	}
+	if !containsAll(args, "--workspace", repo) {
+		t.Fatalf("workspace should be repo root: %v", args)
+	}
+}
+
+func TestToolEvent(t *testing.T) {
+	got := toolEvent("Bash", map[string]interface{}{"command": "curl -s http://example.com"})
+	if !strings.HasPrefix(got, "exec: curl") {
+		t.Fatalf("toolEvent = %q", got)
+	}
+	got = toolEvent("Bash", map[string]interface{}{"command": "rm -rf /"})
+	if !strings.HasPrefix(got, "danger:") {
+		t.Fatalf("danger toolEvent = %q", got)
+	}
+}
+
+func TestConsumeCLIStream(t *testing.T) {
+	var lines []string
+	emit := func(s string) { lines = append(lines, s) }
+	in := strings.NewReader(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"curl example.com"}}]}}
+{"type":"result","result":"done","is_error":false}`)
+	result, hadErr := consumeCLIStream(in, emit)
+	if result != "done" || hadErr != "" {
+		t.Fatalf("result=%q hadErr=%q", result, hadErr)
+	}
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "exec:") {
+		t.Fatalf("emit lines = %v", lines)
+	}
+}
+
+func TestSubscriptionConcurrency(t *testing.T) {
+	refs := []ModelRef{{Provider: "cursor", Model: "auto"}}
+	if got := SubscriptionConcurrency(refs, 8); got != 1 {
+		t.Fatalf("cursor concurrency = %d, want 1", got)
+	}
+	refs = []ModelRef{{Provider: "anthropic", Model: "claude"}}
+	if got := SubscriptionConcurrency(refs, 8); got != 3 {
+		t.Fatalf("anthropic concurrency = %d, want 3", got)
+	}
+}
+
+func TestWriteCLIPromptFile(t *testing.T) {
+	dir := t.TempDir()
+	path, err := writeCLIPromptFile(dir, "system\n\nuser `--rm -rf /`")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "system\n\nuser `--rm -rf /`" {
+		t.Fatalf("prompt file content mismatch: %q", data)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("prompt file mode = %o, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestParseCursorOutput(t *testing.T) {
+	got, err := parseCursorOutput(`{"result":"ok","is_error":false}`)
+	if err != nil || got != "ok" {
+		t.Fatalf("parse json = %q, %v", got, err)
+	}
+	_, err = parseCursorOutput(`{"result":"fail","is_error":true}`)
+	if err == nil {
+		t.Fatal("expected error for is_error")
+	}
+	got, err = parseCursorOutput("plain text")
+	if err != nil || got != "plain text" {
+		t.Fatalf("plain fallback = %q, %v", got, err)
 	}
 }
 

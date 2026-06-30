@@ -32,7 +32,7 @@ func SanitizeTarget(target string) string {
 }
 
 // BuildPool constructs a model pool for a live engagement.
-func BuildPool(cfg types.RunConfig, mcp bool, workdir string) *pool.ModelPool {
+func BuildPool(cfg types.RunConfig, mcp bool, workdir, base string) *pool.ModelPool {
 	var refs []models.ModelRef
 	for _, s := range cfg.Models {
 		refs = append(refs, models.ModelRefParse(s))
@@ -40,11 +40,22 @@ func BuildPool(cfg types.RunConfig, mcp bool, workdir string) *pool.ModelPool {
 	mcpConfig := ""
 	if mcp && cfg.Subscription && len(refs) > 0 && models.MCPSupported(refs[0].Provider) {
 		_ = models.EnsurePlaywrightMCP(cfg.Verbose)
-		mcpConfig, _ = models.WriteMCPConfig(workdir, "")
+		if models.UsesCursorCLI(refs) {
+			mcpConfig, _ = models.WriteCursorMCPConfig(base, "")
+		} else {
+			mcpConfig, _ = models.WriteMCPConfig(workdir, "")
+		}
 	}
-	p := pool.WithAuth(refs, cfg.Concurrency, cfg.Subscription, mcpConfig)
+	concurrency := cfg.Concurrency
+	if cfg.Subscription {
+		concurrency = models.SubscriptionConcurrency(refs, concurrency)
+	}
+	p := pool.WithAuth(refs, concurrency, cfg.Subscription, mcpConfig)
 	client := models.NewChatClient()
 	client.Verbose = cfg.Verbose
+	if models.UsesCursorCLI(refs) {
+		client.CursorWorkspace = base
+	}
 	p.Client = client
 	return p
 }
@@ -74,11 +85,19 @@ func Execute(ctx context.Context, base string, cfg types.RunConfig, mode string,
 	}
 	workdir := *cfg.Workdir
 
+	if cfg.Subscription {
+		var refs []models.ModelRef
+		for _, s := range cfg.Models {
+			refs = append(refs, models.ModelRefParse(s))
+		}
+		cfg.Concurrency = models.SubscriptionConcurrency(refs, cfg.Concurrency)
+	}
+
 	var p pipeline.PoolCaller
 	if stub != nil {
 		p = stub
 	} else {
-		p = BuildPool(cfg, mcp, workdir)
+		p = BuildPool(cfg, mcp, workdir, base)
 	}
 
 	switch mode {

@@ -78,6 +78,7 @@ func extractFindings(text, agent string) []types.Finding {
 }
 
 func extractJSONSlice(text string) string {
+	text = stripCodeFences(text)
 	a := strings.Index(text, "[")
 	b := strings.LastIndex(text, "]")
 	if a >= 0 && b > a {
@@ -89,6 +90,28 @@ func extractJSONSlice(text string) string {
 		return text[a : b+1]
 	}
 	return ""
+}
+
+// stripCodeFences removes markdown ``` / ```json wrappers from model output.
+func stripCodeFences(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "```") {
+		if nl := strings.Index(s, "\n"); nl >= 0 {
+			s = strings.TrimSpace(s[nl+1:])
+		} else {
+			rest := strings.TrimPrefix(s, "```")
+			rest = strings.TrimLeft(rest, " \t")
+			if sp := strings.IndexByte(rest, ' '); sp >= 0 && sp < 16 {
+				rest = strings.TrimSpace(rest[sp+1:])
+			}
+			s = rest
+		}
+	}
+	s = strings.TrimSpace(s)
+	if strings.HasSuffix(s, "```") {
+		s = strings.TrimSpace(strings.TrimSuffix(s, "```"))
+	}
+	return strings.TrimSpace(s)
 }
 
 func fieldStr(o map[string]any, k string) string {

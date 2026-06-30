@@ -120,7 +120,7 @@ func runRecon(ctx context.Context, cfg types.RunConfig, p PoolCaller, progress c
 	}
 	sendProgress(progress, fmt.Sprintf("recon complete via %s", m.Label()))
 	if cfg.Verbose {
-		snip := text
+		snip := stripCodeFences(text)
 		if len([]rune(snip)) > 280 {
 			snip = string([]rune(snip)[:280])
 		}

@@ -1,0 +1,75 @@
+# Go release builds for neurosploit-go (self-contained binary with embedded agents_md).
+# Rust releases use .github/workflows/release.yml; this appends Go archives to the same tag.
+
+version: 2
+
+project_name: neurosploit-go
+
+before:
+  hooks:
+    - bash -c 'rsync -a --delete agents_md/ neurosploit-go/internal/agents/agentsdata/'
+    - bash -c 'cd neurosploit-go && go mod tidy'
+
+builds:
+  - id: neurosploit
+    dir: neurosploit-go
+    main: ./cmd/neurosploit
+    binary: neurosploit
+    flags:
+      - -trimpath
+    tags:
+      - embed_agents
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: neurosploit-go
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "neurosploit-go-{{ .Tag }}-{{ .Os }}-{{ .Arch }}"
+    files:
+      - README.md
+      - neurosploit-go/README.md
+      - src: agents_md
+        dst: agents_md
+
+checksum:
+  name_template: "checksums-go.txt"
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  disable: true
+
+release:
+  github:
+    owner: JoasASantos
+    name: NeuroSploit
+  mode: append
+  header: |
+    ## Go harness (`neurosploit-go`)
+
+    Self-contained binaries with embedded `agents_md`. Extract and run:
+
+    ```bash
+    ./neurosploit --version
+    ./neurosploit run http://testphp.vulnweb.com --subscription --model cursor:auto -v
+    ```
+
+    Set `NEUROSPLOIT_BASE` to the folder containing `agents_md/` when using a dev (non-embedded) build.

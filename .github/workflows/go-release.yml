@@ -1,0 +1,33 @@
+name: Go release
+
+# Publishes neurosploit-go archives via GoReleaser on version tags.
+# Appends assets to the GitHub Release created for the same tag (Rust workflow may run in parallel).
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    name: goreleaser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: neurosploit-go/go.mod
+          cache-dependency-path: neurosploit-go/go.sum
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

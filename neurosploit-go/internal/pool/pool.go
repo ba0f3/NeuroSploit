@@ -82,11 +82,13 @@ func New(candidates []models.ModelRef, concurrency int) *ModelPool {
 
 // WithAuth creates a model pool with optional subscription-CLI routing and MCP config.
 func WithAuth(candidates []models.ModelRef, concurrency int, subscription bool, mcpConfig string) *ModelPool {
-	if concurrency < 1 {
+	if subscription {
+		concurrency = models.SubscriptionConcurrency(candidates, concurrency)
+	} else if concurrency < 1 {
 		concurrency = 1
 	}
-	if subscription && concurrency > 3 {
-		concurrency = 3
+	if concurrency < 1 {
+		concurrency = 1
 	}
 	return &ModelPool{
 		Candidates:   candidates,

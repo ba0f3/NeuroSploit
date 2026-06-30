@@ -1,0 +1,78 @@
+name: Go CI
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "neurosploit-go/**"
+      - "agents_md/**"
+      - ".github/workflows/go-ci.yml"
+      - ".goreleaser.yaml"
+  pull_request:
+    paths:
+      - "neurosploit-go/**"
+      - "agents_md/**"
+      - ".github/workflows/go-ci.yml"
+      - ".goreleaser.yaml"
+
+defaults:
+  run:
+    working-directory: neurosploit-go
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: neurosploit-go/go.mod
+          cache-dependency-path: neurosploit-go/go.sum
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -timeout 30s
+
+  build:
+    name: release build
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: neurosploit-go/go.mod
+          cache-dependency-path: neurosploit-go/go.sum
+
+      - name: Build embedded release binary
+        run: make build-release
+
+      - name: Smoke test
+        run: ./neurosploit --version
+
+  goreleaser-check:
+    name: goreleaser config
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: neurosploit-go/go.mod
+          cache-dependency-path: neurosploit-go/go.sum
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
