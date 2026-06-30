@@ -3,32 +3,26 @@ package repl
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/engagement"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/models"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pipeline"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pool"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
+	"github.com/peterh/liner"
 )
-
-func writef(w *bufio.Writer, format string, args ...any) {
-	_, _ = fmt.Fprintf(w, format, args...)
-}
-
-func writel(w *bufio.Writer, args ...any) {
-	_, _ = fmt.Fprintln(w, args...)
-}
-
-func write(w *bufio.Writer, s string) {
-	_, _ = fmt.Fprint(w, s)
-}
-
-func flush(w *bufio.Writer) {
-	_ = w.Flush()
-}
 
 // Session holds interactive REPL configuration.
 type Session struct {
+	Base         string
 	Models       []string
 	Subscription bool
 	MCP          bool
@@ -39,8 +33,24 @@ type Session struct {
 	Auth         string
 	Focus        string
 	Offline      bool
-	running      bool
-	cancel       context.CancelFunc
+
+	mu      sync.Mutex
+	running bool
+	cancel  context.CancelFunc
+	live    *RunLive
+}
+
+// RunLive tracks an in-flight engagement for /status and /results.
+type RunLive struct {
+	Target     string
+	Mode       string
+	Phase      string
+	Started    time.Time
+	Findings   []types.Finding
+	Summary    [][2]string // sev, title
+	Agents     int
+	AgentsDone int
+	Workdir    string
 }
 
 // NewSession creates a REPL session with defaults.
@@ -52,16 +62,84 @@ func NewSession() *Session {
 	}
 }
 
-// Run starts the read-eval-print loop.
-func (s *Session) Run(in io.Reader, out io.Writer) error {
+// ProjDir returns <cwd>/.neurosploit and ensures it exists.
+func ProjDir() string {
+	cwd, _ := os.Getwd()
+	dir := filepath.Join(cwd, ".neurosploit")
+	_ = os.MkdirAll(dir, 0755)
+	return dir
+}
+
+// Run starts the liner-based REPL (default when no subcommand is given).
+func Run(base string) error {
+	s := NewSession()
+	s.Base = base
+	line := liner.NewLiner()
+	defer func() { _ = line.Close() }()
+	line.SetCtrlCAborts(false)
+	line.SetTabCompletionStyle(liner.TabPrints)
+	line.SetCompleter(func(line string) []string {
+		if strings.HasPrefix(line, "/") {
+			var out []string
+			for _, c := range commandList {
+				if strings.HasPrefix(c, line) {
+					out = append(out, c)
+				}
+			}
+			return out
+		}
+		return nil
+	})
+	histPath := filepath.Join(ProjDir(), "history")
+	if f, err := os.Open(histPath); err == nil {
+		_, _ = line.ReadHistory(f)
+		_ = f.Close()
+	}
+	defer func() {
+		if f, err := os.Create(histPath); err == nil {
+			_, _ = line.WriteHistory(f)
+			_ = f.Close()
+		}
+	}()
+
+	fmt.Println("NeuroSploit REPL — line editing enabled. Type /help for commands.")
+	for {
+		prompt, err := line.Prompt("ns> ")
+		if err == liner.ErrPromptAborted {
+			fmt.Println("^C")
+			continue
+		}
+		if err == io.EOF {
+			fmt.Println()
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		line.AppendHistory(prompt)
+		prompt = strings.TrimSpace(prompt)
+		if prompt == "" {
+			continue
+		}
+		if err := s.handle(prompt, os.Stdout); err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+	}
+}
+
+// RunReader is a test-friendly REPL without liner.
+func (s *Session) RunReader(in io.Reader, out io.Writer) error {
 	r := bufio.NewReader(in)
 	w := bufio.NewWriter(out)
-	defer flush(w)
-
-	writel(w, "NeuroSploit interactive REPL. Type /help for commands.")
+	defer func() { _ = w.Flush() }()
+	fmt.Fprintln(w, "NeuroSploit interactive REPL. Type /help for commands.")
+	_ = w.Flush()
 	for {
-		write(w, "ns> ")
-		flush(w)
+		fmt.Fprint(w, "ns> ")
+		_ = w.Flush()
 		line, err := r.ReadString('\n')
 		if err == io.EOF {
 			return nil
@@ -79,121 +157,217 @@ func (s *Session) Run(in io.Reader, out io.Writer) error {
 			}
 			return err
 		}
+		_ = w.Flush()
 	}
 }
 
-func (s *Session) handle(line string, w *bufio.Writer) error {
+func (s *Session) handle(line string, out io.Writer) error {
 	fields := strings.Fields(line)
 	cmd := fields[0]
 	args := fields[1:]
 
 	switch cmd {
 	case "/help", "/?":
-		writel(w, strings.TrimSpace(helpText))
+		fmt.Fprint(out, helpText)
 	case "/show", "/config":
-		writef(w, "target: %s\nmodels: %v\nsubscription: %v\nmcp: %v\nvote-n: %d\nmax-agents: %d\noffline: %v\n",
+		fmt.Fprintf(out, "target: %s\nmodels: %v\nsubscription: %v\nmcp: %v\nvote-n: %d\nmax-agents: %d\noffline: %v\n",
 			s.Target, s.Models, s.Subscription, s.MCP, s.VoteN, s.MaxAgents, s.Offline)
 	case "/providers":
 		for _, p := range models.Providers() {
-			writef(w, "%-12s %s\n", p.Key, p.Label)
+			fmt.Fprintf(out, "%-12s %s\n", p.Key, p.Label)
 		}
 	case "/model":
 		if len(args) == 0 {
-			writef(w, "models: %v\n", s.Models)
+			fmt.Fprintf(out, "models: %v\n", s.Models)
 		} else {
 			s.Models = args
-			writef(w, "models set to %v\n", s.Models)
+			fmt.Fprintf(out, "models set to %v\n", s.Models)
 		}
 	case "/target":
 		if len(args) == 0 {
-			writef(w, "target: %s\n", s.Target)
+			fmt.Fprintf(out, "target: %s\n", s.Target)
 		} else {
 			s.Target = args[0]
-			writef(w, "target set to %s\n", s.Target)
+			fmt.Fprintf(out, "target set to %s\n", s.Target)
 		}
 	case "/repo":
 		if len(args) > 0 {
 			s.Repo = args[0]
-			writef(w, "repo set to %s\n", s.Repo)
+			fmt.Fprintf(out, "repo set to %s\n", s.Repo)
 		} else {
-			writef(w, "repo: %s\n", s.Repo)
+			fmt.Fprintf(out, "repo: %s\n", s.Repo)
 		}
 	case "/auth":
 		if len(args) > 0 {
 			s.Auth = strings.Join(args, " ")
-			writel(w, "auth header set")
+			fmt.Fprintln(out, "auth header set")
 		} else {
-			writef(w, "auth: %s\n", s.Auth)
+			fmt.Fprintf(out, "auth: %s\n", s.Auth)
 		}
 	case "/focus":
 		if len(args) > 0 {
 			s.Focus = strings.Join(args, " ")
-			writef(w, "focus set to %s\n", s.Focus)
+			fmt.Fprintf(out, "focus set to %s\n", s.Focus)
 		} else {
-			writef(w, "focus: %s\n", s.Focus)
+			fmt.Fprintf(out, "focus: %s\n", s.Focus)
 		}
 	case "/offline":
 		s.Offline = !s.Offline
-		writef(w, "offline: %v\n", s.Offline)
+		fmt.Fprintf(out, "offline: %v\n", s.Offline)
 	case "/subscription", "/sub":
 		s.Subscription = !s.Subscription
-		writef(w, "subscription: %v\n", s.Subscription)
+		fmt.Fprintf(out, "subscription: %v\n", s.Subscription)
 	case "/mcp":
 		s.MCP = !s.MCP
-		writef(w, "mcp: %v\n", s.MCP)
+		fmt.Fprintf(out, "mcp: %v\n", s.MCP)
 	case "/votes":
 		if len(args) > 0 {
 			_, _ = fmt.Sscanf(args[0], "%d", &s.VoteN)
 		}
-		writef(w, "vote-n: %d\n", s.VoteN)
+		fmt.Fprintf(out, "vote-n: %d\n", s.VoteN)
 	case "/max-agents":
 		if len(args) > 0 {
 			_, _ = fmt.Sscanf(args[0], "%d", &s.MaxAgents)
 		}
-		writef(w, "max-agents: %d\n", s.MaxAgents)
+		fmt.Fprintf(out, "max-agents: %d\n", s.MaxAgents)
 	case "/run":
 		if s.Target == "" {
-			writel(w, "set a target first with /target")
+			fmt.Fprintln(out, "set a target first with /target <url>")
 			return nil
 		}
+		s.mu.Lock()
 		if s.running {
-			writel(w, "run already in progress")
+			s.mu.Unlock()
+			fmt.Fprintln(out, "run already in progress")
 			return nil
 		}
+		s.running = true
+		s.mu.Unlock()
 		ctx, cancel := context.WithCancel(context.Background())
 		s.cancel = cancel
-		s.running = true
-		writef(w, "starting run against %s\n", s.Target)
-		go s.backgroundRun(ctx, w)
+		s.live = &RunLive{Target: s.Target, Mode: "black-box", Phase: "starting", Started: time.Now()}
+		fmt.Fprintf(out, "starting run against %s\n", s.Target)
+		go s.backgroundRun(ctx, out)
 	case "/stop":
 		if s.cancel != nil {
 			s.cancel()
 		}
+		s.mu.Lock()
 		s.running = false
-		writel(w, "run stopped")
-	case "/continue":
-		writel(w, "continue: not implemented in this port")
+		s.mu.Unlock()
+		fmt.Fprintln(out, "run stopped")
 	case "/status":
-		if s.running {
-			writef(w, "running against %s\n", s.Target)
+		s.mu.Lock()
+		live := s.live
+		running := s.running
+		s.mu.Unlock()
+		if running && live != nil {
+			fmt.Fprintf(out, "running %s · phase %s · %d/%d agents · %d findings · %s\n",
+				live.Target, live.Phase, live.AgentsDone, live.Agents, len(live.Findings), live.Started.Format(time.Kitchen))
+		} else if live != nil && live.Workdir != "" {
+			fmt.Fprintf(out, "idle · last run %s · %d findings · %s\n", live.Target, len(live.Findings), live.Workdir)
 		} else {
-			writel(w, "idle")
+			fmt.Fprintln(out, "idle")
 		}
 	case "/results", "/report":
-		writel(w, "results: not implemented in this port")
+		s.mu.Lock()
+		live := s.live
+		s.mu.Unlock()
+		if live == nil || len(live.Findings) == 0 {
+			fmt.Fprintln(out, "no findings yet")
+			return nil
+		}
+		for _, f := range live.Findings {
+			fmt.Fprintf(out, "[%s] %s — %s (%s)\n", f.Severity, f.Title, f.Endpoint, f.CWE)
+		}
+		if live.Workdir != "" {
+			fmt.Fprintf(out, "workdir: %s\n", live.Workdir)
+		}
 	case "/quit", "/exit":
+		if s.cancel != nil {
+			s.cancel()
+		}
 		return io.EOF
 	default:
-		writef(w, "unknown command: %s (type /help)\n", cmd)
+		fmt.Fprintf(out, "unknown command: %s (type /help)\n", cmd)
 	}
 	return nil
 }
 
-func (s *Session) backgroundRun(ctx context.Context, w *bufio.Writer) {
-	defer func() { s.running = false }()
-	<-ctx.Done()
-	writel(w, "run cancelled")
-	flush(w)
+func (s *Session) backgroundRun(ctx context.Context, out io.Writer) {
+	defer func() {
+		s.mu.Lock()
+		s.running = false
+		s.mu.Unlock()
+	}()
+
+	cfg := s.RunConfig()
+	progress := make(chan string, 128)
+	go func() {
+		for line := range progress {
+			s.ingestLive(line)
+			fmt.Fprintln(out, line)
+		}
+	}()
+
+	var outRun pipeline.RunOutput
+	if s.Offline {
+		outRun = engagement.Execute(ctx, s.Base, cfg, "run", s.MCP, &offlineStub{}, progress)
+	} else {
+		outRun = engagement.Execute(ctx, s.Base, cfg, "run", s.MCP, nil, progress)
+	}
+	close(progress)
+
+	s.mu.Lock()
+	if s.live != nil {
+		s.live.Findings = outRun.Findings
+		s.live.Workdir = outRun.Workdir
+		s.live.Phase = "complete"
+	}
+	s.mu.Unlock()
+
+	fmt.Fprintf(out, "run complete — %d validated finding(s) · %s\n", len(outRun.Findings), outRun.Workdir)
+}
+
+func (s *Session) ingestLive(line string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.live == nil {
+		return
+	}
+	low := strings.ToLower(line)
+	if strings.Contains(low, "recon complete") {
+		s.live.Phase = "recon"
+	}
+	if strings.Contains(low, "selected") && strings.Contains(low, "agent") {
+		s.live.Phase = "planning"
+	}
+	if strings.HasPrefix(low, "exploit") {
+		s.live.Phase = "exploiting"
+	}
+	if strings.Contains(low, "validating") || strings.HasPrefix(low, "vote") {
+		s.live.Phase = "validating"
+	}
+	if strings.HasPrefix(low, "chain") {
+		s.live.Phase = "chaining"
+	}
+	if strings.Contains(low, "candidate(s)") && strings.HasPrefix(low, "exploit") {
+		s.live.AgentsDone++
+	}
+	if rest, ok := strings.CutPrefix(line, "finding: "); ok {
+		if b, ok := strings.CutPrefix(rest, "["); ok {
+			if sev, tail, ok := strings.Cut(b, "]"); ok {
+				title, _, _ := strings.Cut(strings.TrimSpace(tail), " @ ")
+				s.live.Summary = append(s.live.Summary, [2]string{sev, title})
+			}
+		}
+	}
+	if j, ok := strings.CutPrefix(line, "finding_json: "); ok {
+		var f types.Finding
+		if json.Unmarshal([]byte(j), &f) == nil {
+			s.live.Findings = append(s.live.Findings, f)
+		}
+	}
 }
 
 func (s *Session) RunConfig() types.RunConfig {
@@ -201,8 +375,8 @@ func (s *Session) RunConfig() types.RunConfig {
 	cfg.Models = s.Models
 	cfg.MaxAgents = s.MaxAgents
 	cfg.VoteN = s.VoteN
-	cfg.Offline = s.Offline
 	cfg.Subscription = s.Subscription
+	cfg.Offline = s.Offline
 	if s.Focus != "" {
 		cfg.Instructions = &s.Focus
 	}
@@ -215,6 +389,17 @@ func (s *Session) RunConfig() types.RunConfig {
 	return cfg
 }
 
+// HandleLine is a convenience for testing.
+func (s *Session) HandleLine(line string, out io.Writer) error {
+	return s.handle(line, out)
+}
+
+var commandList = []string{
+	"/help", "/show", "/config", "/providers", "/model", "/target", "/repo", "/auth", "/focus",
+	"/offline", "/sub", "/subscription", "/mcp", "/votes", "/max-agents", "/run", "/stop",
+	"/status", "/results", "/report", "/quit", "/exit",
+}
+
 const helpText = `
 Available commands:
   /help, /?          Show this help
@@ -225,22 +410,41 @@ Available commands:
   /repo <path>       Set repository path
   /auth <header>     Set auth header
   /focus <text>      Set focus instructions
-  /offline           Toggle offline mode
+  /offline           Toggle stub offline harness (no API keys)
   /sub               Toggle subscription mode
   /mcp               Toggle MCP
   /votes <n>         Set vote panel size
   /max-agents <n>    Set max agents
   /run               Start a run
   /stop              Stop current run
-  /continue          Resume a paused run
   /status            Show run status
-  /results, /report  Show results
+  /results, /report  Show findings
   /quit, /exit       Quit the REPL
 `
 
-// HandleLine is a convenience for testing.
-func (s *Session) HandleLine(line string, out io.Writer) error {
-	w := bufio.NewWriter(out)
-	defer flush(w)
-	return s.handle(line, w)
+type offlineStub struct{}
+
+func (offlineStub) SetProgress(chan<- string) {}
+
+func (offlineStub) Complete(label string, task pool.Task, system, user string) (models.ModelRef, string, error) {
+	ref := models.ModelRef{Provider: "offline", Model: "stub"}
+	switch task {
+	case pool.TaskRecon:
+		return ref, `{}`, nil
+	case pool.TaskSelect:
+		return ref, `["sqli_error"]`, nil
+	case pool.TaskExploit:
+		return ref, `[{"title":"SQLi","severity":"Critical","cwe":"CWE-89","endpoint":"/x","evidence":"HTTP/1.1 200 OK Server: nginx","payload":"'","confidence":0.9}]`, nil
+	default:
+		return ref, "{}", nil
+	}
 }
+
+func (offlineStub) Vote(system, user string, n int, skip string) (int, int) {
+	if n < 1 {
+		n = 1
+	}
+	return n, n
+}
+
+func (offlineStub) StopExploiting() bool { return false }

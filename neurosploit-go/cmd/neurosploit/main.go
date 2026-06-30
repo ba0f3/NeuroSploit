@@ -5,15 +5,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
-	"time"
 
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/agents"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/creds"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/engagement"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/models"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pipeline"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pool"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/repl"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/tui"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
 	"github.com/spf13/cobra"
 )
@@ -35,10 +36,10 @@ func rootCmd() *cobra.Command {
 After recon it selects agents, runs them in parallel, then validates findings by cross-model voting before reporting.`,
 		Version: version,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmd.Help()
+			return repl.Run(findBase())
 		},
 	}
-	root.AddCommand(runCmd(), whiteboxCmd(), agentsCmd(), modelsCmd())
+	root.AddCommand(runCmd(), whiteboxCmd(), tuiCmd(), agentsCmd(), modelsCmd())
 	return root
 }
 
@@ -61,7 +62,6 @@ func runCmd() *cobra.Command {
 				cfg.MaxAgents = 5
 			}
 			cfg.VoteN = voteN
-			cfg.Offline = offline
 			cfg.Subscription = subscription
 			cfg.Verbose = verbose
 			if focus != "" {
@@ -70,8 +70,6 @@ func runCmd() *cobra.Command {
 			cr := loadCreds(credsPath)
 			applyCreds(&cfg, cr)
 			if offline {
-				// Stub pool simulates live pipeline without API keys; do not set cfg.Offline
-				// (Rust offline skips exploitation; Go --offline is a self-test harness).
 				cfg.Offline = false
 				return runEngagement(cmd.Context(), cfg, cr, mcp, "run", offlineStubPool{})
 			}
@@ -121,6 +119,31 @@ func whiteboxCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&subscription, "subscription", false, "Use local CLI subscriptions")
 	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable MCP")
 	cmd.Flags().StringVar(&credsPath, "creds", "", "Path to creds.yaml")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+	return cmd
+}
+
+func tuiCmd() *cobra.Command {
+	var modelsFlag []string
+	var subscription, mcp, verbose bool
+
+	cmd := &cobra.Command{
+		Use:   "tui <url>",
+		Short: "Mission Control TUI for a live engagement",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg := types.NewRunConfig(args[0])
+			cfg.Models = defaultModels(modelsFlag)
+			cfg.MaxAgents = 5
+			cfg.VoteN = 3
+			cfg.Subscription = subscription
+			cfg.Verbose = verbose
+			return tui.Run(findBase(), cfg, "run", mcp)
+		},
+	}
+	cmd.Flags().StringArrayVar(&modelsFlag, "model", []string{"anthropic:claude-opus-4-8"}, "Models as provider:model")
+	cmd.Flags().BoolVar(&subscription, "subscription", false, "Use local CLI subscriptions")
+	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable MCP")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	return cmd
 }
@@ -212,41 +235,8 @@ func applyCreds(cfg *types.RunConfig, cr *creds.Creds) {
 	}
 }
 
-func buildPool(cfg types.RunConfig, mcp bool, workdir string) *pool.ModelPool {
-	var refs []models.ModelRef
-	for _, s := range cfg.Models {
-		refs = append(refs, models.ModelRefParse(s))
-	}
-	mcpConfig := ""
-	if mcp && cfg.Subscription && len(refs) > 0 && models.MCPSupported(refs[0].Provider) {
-		_ = models.EnsurePlaywrightMCP()
-		mcpConfig, _ = models.WriteMCPConfig(workdir, "")
-	}
-	p := pool.WithAuth(refs, cfg.Concurrency, cfg.Subscription, mcpConfig)
-	p.Client = models.NewChatClient()
-	return p
-}
-
 func runEngagement(ctx context.Context, cfg types.RunConfig, cr *creds.Creds, mcp bool, mode string, stub pipeline.PoolCaller) error {
 	base := findBase()
-	lib := agents.Load(base)
-
-	workdir := filepath.Join("runs", fmt.Sprintf("ns-%d-%s", time.Now().Unix(), sanitizeTarget(cfg.Target)))
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		return err
-	}
-	cfg.Workdir = &workdir
-	rlPath := filepath.Join(base, "data", "rl_state_go.json")
-	cfg.RLPath = &rlPath
-	_ = os.MkdirAll(filepath.Dir(rlPath), 0755)
-
-	var p pipeline.PoolCaller
-	if stub != nil {
-		p = stub
-	} else {
-		p = buildPool(cfg, mcp, workdir)
-	}
-
 	progress := make(chan string, 128)
 	done := make(chan struct{})
 	go func() {
@@ -256,37 +246,17 @@ func runEngagement(ctx context.Context, cfg types.RunConfig, cr *creds.Creds, mc
 		}
 	}()
 
-	var out pipeline.RunOutput
-	switch mode {
-	case "whitebox":
-		out = pipeline.RunWhitebox(ctx, cfg, lib, p, progress)
-	default:
-		out = pipeline.Run(ctx, cfg, lib, p, progress)
-	}
+	out := engagement.Execute(ctx, base, cfg, mode, mcp, stub, progress)
 	close(progress)
 	<-done
 
-	_ = cr // creds applied via cfg.Auth in pipeline operator directives
+	_ = cr
 	printFindings(out.Findings)
 	if len(out.Artifacts) > 0 {
 		fmt.Printf("artifacts: %s\n", strings.Join(out.Artifacts, ", "))
 	}
 	fmt.Printf("workdir: %s\n", out.Workdir)
 	return nil
-}
-
-var sanitizeRe = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
-
-func sanitizeTarget(target string) string {
-	s := strings.TrimPrefix(strings.TrimPrefix(target, "https://"), "http://")
-	s = sanitizeRe.ReplaceAllString(s, "_")
-	if len(s) > 48 {
-		s = s[:48]
-	}
-	if s == "" {
-		return "target"
-	}
-	return s
 }
 
 func printFindings(findings []types.Finding) {

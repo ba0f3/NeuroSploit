@@ -2,6 +2,7 @@ package repl
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 )
@@ -65,10 +66,20 @@ func TestRunEOF(t *testing.T) {
 	s := NewSession()
 	in := strings.NewReader("/quit\n")
 	var buf bytes.Buffer
-	if err := s.Run(in, &buf); err != nil {
-		t.Fatalf("Run failed: %v", err)
+	if err := s.RunReader(in, &buf); err != nil {
+		t.Fatalf("RunReader failed: %v", err)
 	}
 	if !strings.Contains(buf.String(), "ns>") {
 		t.Errorf("prompt missing: %q", buf.String())
+	}
+}
+
+func TestProjDir(t *testing.T) {
+	dir := ProjDir()
+	if !strings.HasSuffix(dir, ".neurosploit") {
+		t.Fatalf("ProjDir = %q", dir)
+	}
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		t.Fatalf("ProjDir not created: %v", err)
 	}
 }

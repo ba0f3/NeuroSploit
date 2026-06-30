@@ -57,7 +57,7 @@ func Providers() []Provider {
 		{Key: "ollama", Label: "Ollama (local)", BaseURL: "http://localhost:11434/v1", EnvKey: "OLLAMA_API_KEY", Kind: "api",
 			Models: []string{"qwen2.5-coder:32b", "qwq:32b", "deepseek-r1:32b", "llama3.3:70b"}},
 		{Key: "cursor", Label: "Cursor Agent", BaseURL: "", EnvKey: "", Kind: "cli",
-			Models: []string{"auto", "claude-4.6-opus-high", "gpt-5.3-codex", "gemini-3-flash"}},
+			Models: []string{"auto", "composer-2.5", "claude-4.6-opus-high", "gpt-5.3-codex", "gemini-3-flash"}},
 	}
 }
 
@@ -89,7 +89,11 @@ type ModelRef struct {
 // ModelRefParse parses a "provider:model" string. Defaults provider to anthropic.
 func ModelRefParse(s string) ModelRef {
 	if i := strings.Index(s, ":"); i >= 0 {
-		return ModelRef{Provider: s[:i], Model: s[i+1:]}
+		ref := ModelRef{Provider: s[:i], Model: s[i+1:]}
+		if ref.Provider == "agent" {
+			ref.Provider = "cursor"
+		}
+		return ref
 	}
 	return ModelRef{Provider: "anthropic", Model: s}
 }
@@ -101,12 +105,20 @@ func (m ModelRef) Label() string {
 
 // ChatClient is an OpenAI-compatible chat client.
 type ChatClient struct {
-	http *http.Client
+	http    *http.Client
+	Verbose bool
 }
 
 // NewChatClient creates a ChatClient.
 func NewChatClient() ChatClient {
 	return ChatClient{http: &http.Client{Timeout: 120 * time.Second}}
+}
+
+func logCLI(verbose bool, cmd *exec.Cmd) {
+	if !verbose {
+		return
+	}
+	_, _ = fmt.Fprintf(os.Stderr, "cli> %s\n", cmd.String())
 }
 
 // Chat performs one HTTP chat completion.
@@ -215,10 +227,10 @@ func (c ChatClient) ChatCLI(ctx context.Context, label, provider, model, system,
 	}
 	prompt := system + "\n\n" + user
 	if bin == "claude" {
-		return chatClaudeStream(ctx, label, model, prompt, mcpConfig, progress)
+		return chatClaudeStream(ctx, label, model, prompt, mcpConfig, c.Verbose, progress)
 	}
 	if bin == "agent" || bin == "cursor-agent" {
-		return chatCursorCLI(ctx, bin, model, prompt, mcpConfig)
+		return chatCursorCLI(ctx, bin, model, prompt, mcpConfig, c.Verbose)
 	}
 	args := []string{bin}
 	switch bin {
@@ -238,6 +250,7 @@ func (c ChatClient) ChatCLI(ctx context.Context, label, provider, model, system,
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
+	logCLI(c.Verbose, cmd)
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("spawn %s failed: %w", bin, err)
 	}
@@ -272,7 +285,7 @@ func (c ChatClient) ChatCLI(ctx context.Context, label, provider, model, system,
 	return stdout, nil
 }
 
-func chatClaudeStream(ctx context.Context, label, model, prompt, mcpConfig string, progress chan<- string) (string, error) {
+func chatClaudeStream(ctx context.Context, label, model, prompt, mcpConfig string, verbose bool, progress chan<- string) (string, error) {
 	cmd := exec.CommandContext(ctx, "claude", "-p", "--model", model, "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions")
 	cmd.Env = append(os.Environ(), "IS_SANDBOX=1")
 	if mcpConfig != "" {
@@ -285,6 +298,7 @@ func chatClaudeStream(ctx context.Context, label, model, prompt, mcpConfig strin
 	cmd.Stdin = strings.NewReader(prompt)
 	var errBuf bytes.Buffer
 	cmd.Stderr = &errBuf
+	logCLI(verbose, cmd)
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("spawn claude failed: %w", err)
 	}
@@ -359,16 +373,23 @@ func chatClaudeStream(ctx context.Context, label, model, prompt, mcpConfig strin
 	return result, nil
 }
 
-func chatCursorCLI(ctx context.Context, bin, model, prompt, mcpConfig string) (string, error) {
-	args := []string{"-p", "--model", model, "--output-format", "text", "--trust"}
-	if mcpConfig != "" {
-		args = append(args, "--mcp-config", mcpConfig)
+func chatCursorCLI(ctx context.Context, bin, model, prompt, mcpConfig string, verbose bool) (string, error) {
+	path, err := exec.LookPath(bin)
+	if err != nil {
+		return "", fmt.Errorf("spawn %s failed: %w", bin, err)
 	}
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Stdin = strings.NewReader(prompt)
+	args, workdir, err := cursorCLIArgs(model, prompt, mcpConfig)
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.CommandContext(ctx, path, args...)
+	if workdir != "" {
+		cmd.Dir = workdir
+	}
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
+	logCLI(verbose, cmd)
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("spawn %s failed: %w", bin, err)
 	}
@@ -377,7 +398,14 @@ func chatCursorCLI(ctx context.Context, bin, model, prompt, mcpConfig string) (s
 	select {
 	case err := <-done:
 		if err != nil {
-			return "", fmt.Errorf("%s: %w: %s", bin, err, errBuf.String())
+			detail := strings.TrimSpace(errBuf.String())
+			if detail == "" {
+				detail = strings.TrimSpace(outBuf.String())
+			}
+			if detail == "" {
+				detail = "no output"
+			}
+			return "", fmt.Errorf("%s: %w: %s", bin, err, truncate(detail, 240))
 		}
 	case <-time.After(10 * time.Minute):
 		if cmd.Process != nil {
@@ -387,9 +415,30 @@ func chatCursorCLI(ctx context.Context, bin, model, prompt, mcpConfig string) (s
 	}
 	stdout := strings.TrimSpace(outBuf.String())
 	if stdout == "" {
-		return "", fmt.Errorf("%s returned empty output", bin)
+		detail := strings.TrimSpace(errBuf.String())
+		if detail == "" {
+			detail = "no output"
+		}
+		return "", fmt.Errorf("%s returned empty output: %s", bin, truncate(detail, 240))
 	}
 	return stdout, nil
+}
+
+// cursorCLIArgs builds headless Cursor Agent CLI flags. Prompt is positional;
+// --force and --approve-mcps are required for non-interactive MCP use.
+func cursorCLIArgs(model, prompt, mcpConfig string) (args []string, workdir string, err error) {
+	args = []string{"-p", "--model", model, "--output-format", "text", "--trust", "--force"}
+	if mcpConfig != "" {
+		abs, err := filepath.Abs(mcpConfig)
+		if err != nil {
+			return nil, "", fmt.Errorf("mcp config path: %w", err)
+		}
+		mcpConfig = abs
+		workdir = filepath.Dir(abs)
+		args = append(args, "--approve-mcps", "--mcp-config", mcpConfig)
+	}
+	args = append(args, prompt)
+	return args, workdir, nil
 }
 
 // CLIBinaryFor maps a provider to its local agentic CLI binary.
@@ -403,7 +452,7 @@ func CLIBinaryFor(provider string) string {
 		return "grok"
 	case "gemini":
 		return "gemini"
-	case "cursor":
+	case "cursor", "agent":
 		if BinaryInPath("agent") {
 			return "agent"
 		}
@@ -440,13 +489,14 @@ func MCPSupported(provider string) bool {
 }
 
 // EnsurePlaywrightMCP best-effort pre-warms the Playwright MCP package.
-func EnsurePlaywrightMCP() error {
+func EnsurePlaywrightMCP(verbose bool) error {
 	if !BinaryInPath("npx") {
 		return fmt.Errorf("npx (Node.js) not found — install Node to use Playwright MCP")
 	}
 	cmd := exec.Command("npx", "-y", "@playwright/mcp@latest", "--help")
 	cmd.Stdout = nil
 	cmd.Stderr = nil
+	logCLI(verbose, cmd)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("could not provision @playwright/mcp via npx: %w", err)
 	}
@@ -485,6 +535,13 @@ func WriteMCPConfig(dir string, extraServers string) (string, error) {
 	}
 	path := filepath.Join(dir, ".mcp.json")
 	if err := os.WriteFile(path, data, 0644); err != nil {
+		return "", err
+	}
+	cursorDir := filepath.Join(dir, ".cursor")
+	if err := os.MkdirAll(cursorDir, 0755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(cursorDir, "mcp.json"), data, 0644); err != nil {
 		return "", err
 	}
 	return path, nil

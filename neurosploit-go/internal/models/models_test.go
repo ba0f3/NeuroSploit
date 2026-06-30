@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -46,7 +47,11 @@ func TestModelRefParse(t *testing.T) {
 	if m.Provider != "anthropic" || m.Model != "gpt-5.5" {
 		t.Errorf("ModelRefParse without colon = %+v", m)
 	}
-	if m.Label() != "anthropic:gpt-5.5" {
+	m = ModelRefParse("agent:auto")
+	if m.Provider != "cursor" || m.Model != "auto" {
+		t.Errorf("ModelRefParse agent alias = %+v", m)
+	}
+	if m.Label() != "cursor:auto" {
 		t.Errorf("Label = %q", m.Label())
 	}
 }
@@ -116,6 +121,58 @@ func TestWriteMCPConfig(t *testing.T) {
 	if !strings.Contains(string(data), "playwright") {
 		t.Errorf("config missing playwright server")
 	}
+	cursorPath := filepath.Join(dir, ".cursor", "mcp.json")
+	if _, err := os.Stat(cursorPath); err != nil {
+		t.Fatalf(".cursor/mcp.json missing: %v", err)
+	}
+}
+
+func TestCursorCLIArgs(t *testing.T) {
+	args, workdir, err := cursorCLIArgs("auto", "hello", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workdir != "" {
+		t.Fatalf("workdir = %q, want empty", workdir)
+	}
+	if args[len(args)-1] != "hello" {
+		t.Fatalf("prompt not positional: %v", args)
+	}
+	if !containsAll(args, "--force", "--trust", "-p") {
+		t.Fatalf("missing headless flags: %v", args)
+	}
+
+	dir := t.TempDir()
+	mcpPath := filepath.Join(dir, ".mcp.json")
+	if err := os.WriteFile(mcpPath, []byte(`{"mcpServers":{}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	args, workdir, err = cursorCLIArgs("auto", "probe", mcpPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workdir != dir {
+		t.Fatalf("workdir = %q, want %q", workdir, dir)
+	}
+	if !containsAll(args, "--approve-mcps", "--mcp-config", workdir) {
+		t.Fatalf("missing MCP flags: %v", args)
+	}
+}
+
+func containsAll(slice []string, items ...string) bool {
+	for _, item := range items {
+		found := false
+		for _, s := range slice {
+			if s == item || strings.Contains(s, item) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 func TestBinaryInPath(t *testing.T) {

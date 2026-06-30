@@ -21,8 +21,9 @@ neurosploit-go/
     ├── pomdp/                # Belief planner / action selector
     ├── pool/                 # Model pool with failover + voting
     ├── registry/             # JSONL findings store
-    ├── repl/                 # Interactive slash-command REPL
-    ├── tui/                  # Wizard / menu helpers
+    ├── engagement/           # Shared pool/workdir/Execute for CLI, REPL, TUI
+    ├── repl/                 # liner interactive slash-command REPL
+    ├── tui/                  # bubbletea Mission Control + stdio wizard
     └── types/                # Shared structs (Finding, RunConfig, ...)
 ```
 
@@ -75,6 +76,8 @@ The pool is injectable via `pipeline.PoolCaller` for offline/stub tests.
 Approved third-party packages:
 
 - `github.com/spf13/cobra` — CLI
+- `github.com/peterh/liner` — REPL line editing and history
+- `github.com/charmbracelet/bubbletea` / `bubbles` / `lipgloss` — Mission Control TUI
 - `golang.org/x/sync` — errgroup for parallel agents
 - `mvdan.cc/sh/v3` — bash command parsing in `mcpbridge` (allowlist gate)
 

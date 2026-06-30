@@ -33,7 +33,7 @@ func execute(t *testing.T, cmd *cobra.Command, args ...string) (string, error) {
 }
 
 func TestRootHelp(t *testing.T) {
-	out, err := execute(t, rootCmd())
+	out, err := execute(t, rootCmd(), "--help")
 	if err != nil {
 		t.Fatalf("root help failed: %v", err)
 	}
