@@ -102,7 +102,7 @@ func tokenMatches(evidence, context string) bool {
 // For black-box runs the receipt is empirical (raw tool output); for white-box
 // runs it is symbolic (a source location or code quote present in context).
 func Ground(f *types.Finding, context string, whitebox bool) Result {
-	if whitebox {
+	if whitebox && strings.TrimSpace(context) != "" {
 		if looksSymbolic(f, context) {
 			return Result{OK: true, Kind: "symbolic", Reason: ""}
 		}
@@ -131,7 +131,6 @@ func Gate(findings []types.Finding, context string, whitebox bool) ([]types.Find
 	for i := range findings {
 		r := Ground(&findings[i], context, whitebox)
 		if r.OK {
-			findings[i].Validated = true
 			continue
 		}
 		findings[i].Validated = false
