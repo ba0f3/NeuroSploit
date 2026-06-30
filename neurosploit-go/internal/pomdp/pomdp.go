@@ -41,7 +41,9 @@ func ValueOfInformation(wm *belief.WorldModel, nodeID string) float64 {
 		weight = 1.0
 	case belief.KindVuln:
 		weight = 0.8
-	case belief.KindService, belief.KindHost:
+	case belief.KindHost:
+		weight = 0.4
+	case belief.KindService:
 		weight = 0.5
 	default:
 		weight = 0.0
@@ -54,7 +56,13 @@ func Decide(wm *belief.WorldModel, pol Policy) Action {
 	bestRecon := bestReconAction(wm)
 	bestExploit := bestExploitAction(wm, pol)
 
-	if bestRecon.V >= bestExploit.V && bestRecon.V > (1.0-pol.ExploreEntropy) {
+	if bestRecon != nil {
+		if bestRecon.V >= bestExploit.V && bestRecon.V > (1.0-pol.ExploreEntropy) {
+			return Action{Type: "recon", Node: bestRecon.Node, V: bestRecon.V}
+		}
+		if bestExploit.V > 0.0 {
+			return Action{Type: "exploit", Node: bestExploit.Node, V: bestExploit.V}
+		}
 		return Action{Type: "recon", Node: bestRecon.Node, V: bestRecon.V}
 	}
 	if bestExploit.V > 0.0 {
@@ -63,12 +71,15 @@ func Decide(wm *belief.WorldModel, pol Policy) Action {
 	return Action{Type: "stop"}
 }
 
-func bestReconAction(wm *belief.WorldModel) Action {
-	var best Action
+func bestReconAction(wm *belief.WorldModel) *Action {
+	if len(wm.Nodes) == 0 {
+		return nil
+	}
+	var best *Action
 	for id := range wm.Nodes {
 		v := ValueOfInformation(wm, id)
-		if v > best.V {
-			best = Action{Node: id, V: v}
+		if best == nil || v > best.V {
+			best = &Action{Node: id, V: v}
 		}
 	}
 	return best
