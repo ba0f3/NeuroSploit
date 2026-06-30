@@ -25,7 +25,7 @@ func TestFindingRoundTrip(t *testing.T) {
 		Validated:      true,
 		Votes:          "3/4 confirmed",
 		OWASP:          "A03:2021-Injection",
-		Mitre:          "T1190",
+		MITRE:          "T1190",
 		Stage:          "initial-access",
 		Exploitability: "trivial",
 		BusinessImpact: "Data breach",
@@ -76,6 +76,9 @@ func TestDefaultFinding(t *testing.T) {
 	}
 	if f.Validated != false {
 		t.Errorf("Validated: want false, got %t", f.Validated)
+	}
+	if f.ChainsFrom == nil || len(f.ChainsFrom) != 0 {
+		t.Errorf("ChainsFrom: want empty non-nil slice, got %v", f.ChainsFrom)
 	}
 }
 

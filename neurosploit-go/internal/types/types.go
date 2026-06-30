@@ -17,7 +17,7 @@ type Finding struct {
 	Validated      bool     `json:"validated"`
 	Votes          string   `json:"votes"`
 	OWASP          string   `json:"owasp"`
-	Mitre          string   `json:"mitre"`
+	MITRE          string   `json:"mitre"`
 	Stage          string   `json:"stage"`
 	Exploitability string   `json:"exploitability"`
 	BusinessImpact string   `json:"business_impact"`
