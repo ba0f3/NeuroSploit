@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
 
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/agents"
-	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/belief"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/creds"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/models"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pipeline"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pool"
-	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/registry"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
 	"github.com/spf13/cobra"
 )
@@ -62,19 +63,19 @@ func runCmd() *cobra.Command {
 			cfg.VoteN = voteN
 			cfg.Offline = offline
 			cfg.Subscription = subscription
+			cfg.Verbose = verbose
 			if focus != "" {
 				cfg.Instructions = &focus
 			}
-
-			var cr *creds.Creds
-			if credsPath != "" {
-				cr = creds.Load(credsPath)
+			cr := loadCreds(credsPath)
+			applyCreds(&cfg, cr)
+			if offline {
+				// Stub pool simulates live pipeline without API keys; do not set cfg.Offline
+				// (Rust offline skips exploitation; Go --offline is a self-test harness).
+				cfg.Offline = false
+				return runEngagement(cmd.Context(), cfg, cr, mcp, "run", offlineStubPool{})
 			}
-
-			if cfg.Offline {
-				return offlineRun(cmd.Context(), cfg, cr, verbose)
-			}
-			return realRun(cmd.Context(), cfg, cr, mcp, verbose)
+			return runEngagement(cmd.Context(), cfg, cr, mcp, "run", nil)
 		},
 	}
 	cmd.Flags().StringArrayVar(&modelsFlag, "model", []string{"anthropic:claude-opus-4-8"}, "Models as provider:model")
@@ -108,13 +109,10 @@ func whiteboxCmd() *cobra.Command {
 			}
 			cfg.VoteN = voteN
 			cfg.Subscription = subscription
-
-			var cr *creds.Creds
-			if credsPath != "" {
-				cr = creds.Load(credsPath)
-			}
-			fmt.Println("whitebox review:", args[0])
-			return realRun(cmd.Context(), cfg, cr, mcp, verbose)
+			cfg.Verbose = verbose
+			cr := loadCreds(credsPath)
+			applyCreds(&cfg, cr)
+			return runEngagement(cmd.Context(), cfg, cr, mcp, "whitebox", nil)
 		},
 	}
 	cmd.Flags().StringArrayVar(&modelsFlag, "model", []string{"anthropic:claude-opus-4-8"}, "Models as provider:model")
@@ -191,65 +189,104 @@ func defaultModels(in []string) []string {
 func findBase() string {
 	cwd, _ := os.Getwd()
 	for dir := cwd; dir != "/"; dir = filepath.Dir(dir) {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			if _, err := os.Stat(filepath.Join(dir, "agents_md")); err == nil {
-				return dir
-			}
+		if _, err := os.Stat(filepath.Join(dir, "agents_md")); err == nil {
+			return dir
 		}
 	}
 	return cwd
 }
 
-func realRun(ctx context.Context, cfg types.RunConfig, cr *creds.Creds, mcp, verbose bool) error {
+func loadCreds(path string) *creds.Creds {
+	if path == "" {
+		return nil
+	}
+	return creds.Load(path)
+}
+
+func applyCreds(cfg *types.RunConfig, cr *creds.Creds) {
+	if cr == nil {
+		return
+	}
+	if h := cr.AuthHeader(); h != nil {
+		cfg.Auth = h
+	}
+}
+
+func buildPool(cfg types.RunConfig, mcp bool, workdir string) *pool.ModelPool {
 	var refs []models.ModelRef
 	for _, s := range cfg.Models {
 		refs = append(refs, models.ModelRefParse(s))
 	}
-	p := pool.New(refs, cfg.Concurrency)
-	p.Subscription = cfg.Subscription
-
-	if mcp && cfg.Subscription {
-		if models.MCPSupported(refs[0].Provider) {
-			if cfg.Workdir != nil && *cfg.Workdir != "" {
-				_ = models.EnsurePlaywrightMCP()
-				p.MCPConfig, _ = models.WriteMCPConfig(*cfg.Workdir, "")
-			}
-		}
+	mcpConfig := ""
+	if mcp && cfg.Subscription && len(refs) > 0 && models.MCPSupported(refs[0].Provider) {
+		_ = models.EnsurePlaywrightMCP()
+		mcpConfig, _ = models.WriteMCPConfig(workdir, "")
 	}
+	p := pool.WithAuth(refs, cfg.Concurrency, cfg.Subscription, mcpConfig)
+	p.Client = models.NewChatClient()
+	return p
+}
 
-	workdir := "."
-	if cfg.Workdir != nil {
-		workdir = *cfg.Workdir
-	}
-	reg := registry.New(filepath.Join(workdir, "findings.jsonl"))
-	wm := &belief.WorldModel{Nodes: map[string]belief.Node{}}
-	r := pipeline.New(p, reg, wm, cr)
-	if err := r.Run(ctx, cfg); err != nil {
+func runEngagement(ctx context.Context, cfg types.RunConfig, cr *creds.Creds, mcp bool, mode string, stub pipeline.PoolCaller) error {
+	base := findBase()
+	lib := agents.Load(base)
+
+	workdir := filepath.Join("runs", fmt.Sprintf("ns-%d-%s", time.Now().Unix(), sanitizeTarget(cfg.Target)))
+	if err := os.MkdirAll(workdir, 0755); err != nil {
 		return err
 	}
-	findings := r.Findings()
-	if verbose {
-		fmt.Printf("findings: %d\n", len(findings))
+	cfg.Workdir = &workdir
+	rlPath := filepath.Join(base, "data", "rl_state_go.json")
+	cfg.RLPath = &rlPath
+	_ = os.MkdirAll(filepath.Dir(rlPath), 0755)
+
+	var p pipeline.PoolCaller
+	if stub != nil {
+		p = stub
+	} else {
+		p = buildPool(cfg, mcp, workdir)
 	}
-	printFindings(findings)
+
+	progress := make(chan string, 128)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for line := range progress {
+			fmt.Println(line)
+		}
+	}()
+
+	var out pipeline.RunOutput
+	switch mode {
+	case "whitebox":
+		out = pipeline.RunWhitebox(ctx, cfg, lib, p, progress)
+	default:
+		out = pipeline.Run(ctx, cfg, lib, p, progress)
+	}
+	close(progress)
+	<-done
+
+	_ = cr // creds applied via cfg.Auth in pipeline operator directives
+	printFindings(out.Findings)
+	if len(out.Artifacts) > 0 {
+		fmt.Printf("artifacts: %s\n", strings.Join(out.Artifacts, ", "))
+	}
+	fmt.Printf("workdir: %s\n", out.Workdir)
 	return nil
 }
 
-func offlineRun(ctx context.Context, cfg types.RunConfig, cr *creds.Creds, verbose bool) error {
-	stub := &stubPool{}
-	reg := registry.New(filepath.Join(".", "findings.jsonl"))
-	wm := &belief.WorldModel{Nodes: map[string]belief.Node{}}
-	wm.Add("xss", belief.KindVuln, "reflected xss", 0.95)
-	r := pipeline.New(stub, reg, wm, cr)
-	if err := r.Run(ctx, cfg); err != nil {
-		return err
+var sanitizeRe = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
+
+func sanitizeTarget(target string) string {
+	s := strings.TrimPrefix(strings.TrimPrefix(target, "https://"), "http://")
+	s = sanitizeRe.ReplaceAllString(s, "_")
+	if len(s) > 48 {
+		s = s[:48]
 	}
-	findings := r.Findings()
-	if verbose {
-		fmt.Printf("offline findings: %d\n", len(findings))
+	if s == "" {
+		return "target"
 	}
-	printFindings(findings)
-	return nil
+	return s
 }
 
 func printFindings(findings []types.Finding) {
@@ -262,16 +299,29 @@ func printFindings(findings []types.Finding) {
 	}
 }
 
-type stubPool struct{}
+type offlineStubPool struct{}
 
-func (stubPool) Complete(label string, task pool.Task, system, user string) (models.ModelRef, string, error) {
-	return models.ModelRef{Provider: "offline", Model: "stub"}, `HTTP/1.1 200 OK
-finding: Offline Test CWE-79 on ` + user, nil
+func (offlineStubPool) SetProgress(chan<- string) {}
+
+func (offlineStubPool) Complete(label string, task pool.Task, system, user string) (models.ModelRef, string, error) {
+	ref := models.ModelRef{Provider: "offline", Model: "stub"}
+	switch task {
+	case pool.TaskRecon:
+		return ref, `{}`, nil
+	case pool.TaskSelect:
+		return ref, `["sqli_error"]`, nil
+	case pool.TaskExploit:
+		return ref, `[{"title":"SQLi","severity":"Critical","cwe":"CWE-89","endpoint":"/x","evidence":"HTTP/1.1 200 OK Server: nginx","payload":"'","confidence":0.9}]`, nil
+	default:
+		return ref, "{}", nil
+	}
 }
 
-func (stubPool) Vote(system, user string, n int, skip string) (int, int) {
-	return 1, 1
+func (offlineStubPool) Vote(system, user string, n int, skip string) (int, int) {
+	if n < 1 {
+		n = 1
+	}
+	return n, n
 }
 
-func (stubPool) IsCancelled() bool { return false }
-func (stubPool) IsStopped() bool   { return false }
+func (offlineStubPool) StopExploiting() bool { return false }

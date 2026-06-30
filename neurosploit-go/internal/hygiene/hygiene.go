@@ -13,6 +13,7 @@ import (
 var WEASEL = []string{
 	"could ", "may ", "might ", "potential", "possible", "possibly", "teóric", "theoret",
 	"poderia", "possív", "potencial", "if the ", "caso o", "caso a", "would allow", "permitiria",
+	"có thể ", "có lẽ", "tiềm năng", "khả năng", "có khả năng", "nếu như", "trong trường hợp", "dường như", "có thể sẽ",
 }
 
 // EXPOSURE_CWES lists CWEs that indicate information disclosure / exposure
@@ -24,6 +25,7 @@ var ExposureKeywords = []string{
 	"disclosure", "exposed", "exposi", "exposure", "catalog", "catálogo", "cors",
 	"banner", "version", "versão", "header", "cabeçalho", ".git", "enumerat",
 	"fingerprint", "wsdl", "swagger", "missing security", "outdated", "eol",
+	"tiết lộ", "lộ thông tin", "phiên bản", "cấu hình", "thiếu bảo mật", "rò rỉ", "phơi bày",
 }
 
 func hostOf(endpoint string) string {

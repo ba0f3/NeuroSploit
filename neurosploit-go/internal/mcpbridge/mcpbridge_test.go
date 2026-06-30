@@ -58,6 +58,7 @@ func TestBashRejectsDangerous(t *testing.T) {
 
 func TestBashEcho(t *testing.T) {
 	r := New()
+	r.SessionTrust = true
 	res := r.Execute(ToolCall{Name: "bash", ID: "6", Args: map[string]interface{}{
 		"command": "echo hello",
 	}})

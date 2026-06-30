@@ -97,6 +97,12 @@ func WithAuth(candidates []models.ModelRef, concurrency int, subscription bool, 
 	}
 }
 
+// SetProgress wires the activity feed channel used by subscription CLIs.
+func (p *ModelPool) SetProgress(ch chan<- string) { p.Progress = ch }
+
+// StopExploiting reports whether new exploit agents should not launch.
+func (p *ModelPool) StopExploiting() bool { return p.soft.Load() }
+
 // Cancel hard-stops in-flight calls.
 func (p *ModelPool) Cancel() { p.cancel.Store(true) }
 

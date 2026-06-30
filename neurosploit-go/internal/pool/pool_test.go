@@ -28,6 +28,26 @@ func (f fakeClient) ChatCLI(ctx context.Context, label, provider, model, system,
 	return f.Chat(ctx, models.ModelRef{Provider: provider, Model: model}, system, user)
 }
 
+func TestSetProgress(t *testing.T) {
+	p := New([]models.ModelRef{models.ModelRefParse("anthropic:claude-opus-4-8")}, 1)
+	ch := make(chan string, 1)
+	p.SetProgress(ch)
+	if p.Progress == nil {
+		t.Fatal("Progress not set")
+	}
+}
+
+func TestStopExploiting(t *testing.T) {
+	p := New([]models.ModelRef{models.ModelRefParse("anthropic:claude-opus-4-8")}, 1)
+	if p.StopExploiting() {
+		t.Fatal("expected false before stop")
+	}
+	p.Stop()
+	if !p.StopExploiting() {
+		t.Fatal("expected true after Stop")
+	}
+}
+
 func TestIsExhaustion(t *testing.T) {
 	if !IsExhaustion(errors.New("rate limit exceeded")) {
 		t.Error("expected rate limit to be exhaustion")

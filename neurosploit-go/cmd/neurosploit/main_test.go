@@ -67,12 +67,15 @@ func TestAgentsCmd(t *testing.T) {
 }
 
 func TestOfflineRun(t *testing.T) {
-	dir := t.TempDir()
+	base := findBase()
+	if _, err := os.Stat(filepath.Join(base, "agents_md")); err != nil {
+		t.Skip("agents_md not found")
+	}
 	origDir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chdir(dir); err != nil {
+	if err := os.Chdir(base); err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = os.Chdir(origDir) }()
@@ -81,7 +84,7 @@ func TestOfflineRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("offline run failed: %v", err)
 	}
-	if !strings.Contains(out, "offline findings") && !strings.Contains(out, "Offline Test") {
+	if !strings.Contains(out, "SQLi") && !strings.Contains(out, "workdir:") {
 		t.Errorf("offline run output unexpected: %q", out)
 	}
 }

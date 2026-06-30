@@ -33,13 +33,19 @@ type Handler func(ToolCall) Result
 
 // Registry maps tool names to handlers.
 type Registry struct {
-	handlers map[string]Handler
+	handlers     map[string]Handler
+	Allowlist    *Allowlist
+	SessionTrust bool
+	Prompt       PromptFunc
 }
 
 // New creates a registry with the default built-in handlers.
 func New() *Registry {
-	r := &Registry{handlers: make(map[string]Handler)}
-	r.Register("bash", handleBash)
+	r := &Registry{
+		handlers:  make(map[string]Handler),
+		Allowlist: LoadAllowlist(),
+	}
+	r.Register("bash", r.handleBash)
 	r.Register("read_file", handleReadFile)
 	r.Register("write_file", handleWriteFile)
 	r.Register("web_fetch", handleWebFetch)
@@ -64,7 +70,7 @@ func (r *Registry) Execute(call ToolCall) Result {
 	return Result{ID: call.ID, IsError: true, Error: fmt.Sprintf("unknown tool: %s", call.Name)}
 }
 
-func handleBash(call ToolCall) Result {
+func (r *Registry) handleBash(call ToolCall) Result {
 	cmdRaw, ok := call.Args["command"].(string)
 	if !ok || cmdRaw == "" {
 		return Result{IsError: true, Error: "bash: missing command"}
@@ -73,18 +79,26 @@ func handleBash(call ToolCall) Result {
 	if isDangerous(cmd) {
 		return Result{IsError: true, Error: "bash: dangerous command rejected"}
 	}
-	parts := strings.Fields(cmd)
-	if len(parts) == 0 {
-		return Result{IsError: true, Error: "bash: empty command"}
+	tty := isTTY()
+	if err := CheckBashPermission(cmd, r.Allowlist, r.SessionTrust, tty, r.Prompt); err != nil {
+		return Result{IsError: true, Error: err.Error()}
 	}
 	ctx, cancel := withTimeout(60)
 	defer cancel()
-	c := exec.CommandContext(ctx, parts[0], parts[1:]...)
+	c := exec.CommandContext(ctx, "sh", "-c", cmd)
 	out, err := c.CombinedOutput()
 	if err != nil {
 		return Result{IsError: true, Error: fmt.Sprintf("bash: %v: %s", err, string(out))}
 	}
 	return Result{Output: string(out)}
+}
+
+func isTTY() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
 }
 
 func handleReadFile(call ToolCall) Result {

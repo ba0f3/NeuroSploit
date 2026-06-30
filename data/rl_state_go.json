@@ -1,0 +1,11 @@
+{
+  "weights": {
+    "ai_api_key_exfiltration": 0.335,
+    "api_bola_chained": 0.335,
+    "bfla": 0.335,
+    "exposed_api_docs": 0.335,
+    "idor": 0.335,
+    "sqli_error": 0.915965
+  },
+  "runs": 6
+}

@@ -56,6 +56,8 @@ func Providers() []Provider {
 			Models: []string{"gpt-4o", "gpt-4o-mini", "gpt-5.1", "o4-mini"}},
 		{Key: "ollama", Label: "Ollama (local)", BaseURL: "http://localhost:11434/v1", EnvKey: "OLLAMA_API_KEY", Kind: "api",
 			Models: []string{"qwen2.5-coder:32b", "qwq:32b", "deepseek-r1:32b", "llama3.3:70b"}},
+		{Key: "cursor", Label: "Cursor Agent", BaseURL: "", EnvKey: "", Kind: "cli",
+			Models: []string{"auto", "claude-4.6-opus-high", "gpt-5.3-codex", "gemini-3-flash"}},
 	}
 }
 
@@ -215,6 +217,9 @@ func (c ChatClient) ChatCLI(ctx context.Context, label, provider, model, system,
 	if bin == "claude" {
 		return chatClaudeStream(ctx, label, model, prompt, mcpConfig, progress)
 	}
+	if bin == "agent" || bin == "cursor-agent" {
+		return chatCursorCLI(ctx, bin, model, prompt, mcpConfig)
+	}
 	args := []string{bin}
 	switch bin {
 	case "codex":
@@ -354,6 +359,39 @@ func chatClaudeStream(ctx context.Context, label, model, prompt, mcpConfig strin
 	return result, nil
 }
 
+func chatCursorCLI(ctx context.Context, bin, model, prompt, mcpConfig string) (string, error) {
+	args := []string{"-p", "--model", model, "--output-format", "text", "--trust"}
+	if mcpConfig != "" {
+		args = append(args, "--mcp-config", mcpConfig)
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Stdin = strings.NewReader(prompt)
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("spawn %s failed: %w", bin, err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			return "", fmt.Errorf("%s: %w: %s", bin, err, errBuf.String())
+		}
+	case <-time.After(10 * time.Minute):
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		return "", fmt.Errorf("%s timed out after 600s", bin)
+	}
+	stdout := strings.TrimSpace(outBuf.String())
+	if stdout == "" {
+		return "", fmt.Errorf("%s returned empty output", bin)
+	}
+	return stdout, nil
+}
+
 // CLIBinaryFor maps a provider to its local agentic CLI binary.
 func CLIBinaryFor(provider string) string {
 	switch provider {
@@ -365,6 +403,11 @@ func CLIBinaryFor(provider string) string {
 		return "grok"
 	case "gemini":
 		return "gemini"
+	case "cursor":
+		if BinaryInPath("agent") {
+			return "agent"
+		}
+		return "cursor-agent"
 	default:
 		return ""
 	}
@@ -393,7 +436,7 @@ func InstalledCLIBackends() []string {
 
 // MCPSupported reports whether the provider's CLI accepts a Playwright MCP config.
 func MCPSupported(provider string) bool {
-	return provider == "anthropic" || provider == "openai"
+	return provider == "anthropic" || provider == "openai" || provider == "cursor"
 }
 
 // EnsurePlaywrightMCP best-effort pre-warms the Playwright MCP package.

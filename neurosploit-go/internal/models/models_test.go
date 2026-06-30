@@ -11,8 +11,29 @@ import (
 )
 
 func TestProvidersCount(t *testing.T) {
-	if got := len(Providers()); got != 14 {
-		t.Errorf("Providers() = %d, want 14", got)
+	if got := len(Providers()); got != 15 {
+		t.Errorf("Providers() = %d, want 15", got)
+	}
+}
+
+func TestProviderCursor(t *testing.T) {
+	var found bool
+	for _, p := range Providers() {
+		if p.Key == "cursor" {
+			found = true
+			if p.Kind != "cli" {
+				t.Fatalf("kind = %s", p.Kind)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("cursor provider missing")
+	}
+	if !MCPSupported("cursor") {
+		t.Fatal("cursor should support MCP")
+	}
+	if CLIBinaryFor("cursor") == "" {
+		t.Fatal("CLIBinaryFor cursor empty")
 	}
 }
 
@@ -40,7 +61,7 @@ func TestProviderFor(t *testing.T) {
 }
 
 func TestMCPSupported(t *testing.T) {
-	if !MCPSupported("anthropic") || !MCPSupported("openai") || MCPSupported("xai") {
+	if !MCPSupported("anthropic") || !MCPSupported("openai") || !MCPSupported("cursor") || MCPSupported("xai") {
 		t.Errorf("MCPSupported results incorrect")
 	}
 }

@@ -59,14 +59,33 @@ The loader (`internal/agents`) extracts the `#` title, any `CWE-###` reference, 
 
 ### Pipeline
 
-`internal/pipeline.Runner` wires the belief model, POMDP planner, model pool, grounding gate, hygiene calibration, attack-graph enrichment, and registry. It implements the high-level loop:
+`pipeline.Run` / `RunWhitebox` / `RunGreybox` / `RunHost` implement the Rust orchestrator:
 
-1. `pomdp.Decide` picks `recon` or `exploit`.
-2. `pool.Complete` calls the LLM and fails over across models.
-3. `grounding.Ground` requires an empirical (HTTP/tool) or symbolic (source) receipt.
-4. `hygiene.Calibrate` deflates unproven high/critical findings.
-5. `attackgraph.Enrich` adds kill-chain context and maps CWEs to stages.
-6. `registry.Registry` persists validated findings as JSONL.
+1. Recon (`pool.Complete` with `TaskRecon`)
+2. LLM agent selection (`TaskSelect` + `heuristicSelect` fallback)
+3. Parallel exploit per `agents_md` specialist (`agent.System` + `agents.RenderPrompt` on `agent.User`)
+4. N-model validation vote
+5. Chain round on confirmed findings
+6. Grounding, hygiene, attack-graph enrichment, RL update, artifact persist
+
+The pool is injectable via `pipeline.PoolCaller` for offline/stub tests.
+
+### Dependencies
+
+Approved third-party packages:
+
+- `github.com/spf13/cobra` — CLI
+- `golang.org/x/sync` — errgroup for parallel agents
+- `mvdan.cc/sh/v3` — bash command parsing in `mcpbridge` (allowlist gate)
+
+### Release build (embedded agents)
+
+```bash
+rsync -a agents_md/ neurosploit-go/internal/agents/agentsdata/
+cd neurosploit-go && go build -tags embed_agents -o neurosploit ./cmd/neurosploit
+```
+
+Dev/test builds load `agents_md/` from disk (default, no build tag).
 
 ### Model Pool
 

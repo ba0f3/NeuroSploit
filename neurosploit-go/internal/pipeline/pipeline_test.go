@@ -2,92 +2,95 @@ package pipeline
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
-	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/belief"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/agents"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/models"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pool"
-	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/registry"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
 )
 
-type fakeRunnerClient struct{}
-
-func (fakeRunnerClient) Chat(ctx context.Context, m models.ModelRef, system, user string) (string, error) {
-	if contains(system, "security tester") {
-		return "HTTP/1.1 200 OK\nContent-Type: text/html\n\nfinding: XSS CWE-79 on /search", nil
-	}
-	return "target appears to be a web app", nil
+type stubPool struct {
+	reconJSON   string
+	exploitJSON string
 }
 
-func (fakeRunnerClient) ChatCLI(ctx context.Context, label, provider, model, system, user, mcpConfig string, progress chan<- string) (string, error) {
-	return fakeRunnerClient{}.Chat(ctx, models.ModelRef{Provider: provider, Model: model}, system, user)
-}
+func (s stubPool) SetProgress(chan<- string) {}
 
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || find(s, sub))
-}
-
-func find(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
-}
-
-func TestNewRunner(t *testing.T) {
-	p := pool.New([]models.ModelRef{models.ModelRefParse("anthropic:claude-opus-4-8")}, 1)
-	p.Client = fakeRunnerClient{}
-	r := New(p, nil, nil, nil)
-	if r == nil || r.World == nil {
-		t.Fatal("New returned nil runner or world")
+func (s stubPool) Complete(label string, task pool.Task, system, user string) (models.ModelRef, string, error) {
+	ref := models.ModelRef{Provider: "offline", Model: "stub"}
+	switch task {
+	case pool.TaskRecon:
+		return ref, s.reconJSON, nil
+	case pool.TaskSelect:
+		return ref, `["sqli_error"]`, nil
+	case pool.TaskExploit:
+		return ref, s.exploitJSON, nil
+	default:
+		return ref, "{}", nil
 	}
 }
 
-func TestRunLoop(t *testing.T) {
-	p := pool.New([]models.ModelRef{models.ModelRefParse("anthropic:claude-opus-4-8")}, 1)
-	p.Client = fakeRunnerClient{}
-	reg := registry.New(filepath.Join(t.TempDir(), "findings.jsonl"))
-	wm := &belief.WorldModel{Nodes: map[string]belief.Node{}}
-	wm.Add("xss", belief.KindVuln, "reflected xss", 0.95)
-	r := New(p, reg, wm, nil)
-	cfg := types.NewRunConfig("http://example.com")
-	cfg.MaxAgents = 3
-	if err := r.Run(context.Background(), cfg); err != nil {
-		t.Fatalf("Run failed: %v", err)
-	}
-	if len(r.Findings()) == 0 {
-		t.Errorf("expected at least one finding")
-	}
-}
+func (s stubPool) Vote(system, user string, n int, skip string) (int, int) { return n, n }
 
-func TestValidate(t *testing.T) {
-	p := pool.New([]models.ModelRef{
-		models.ModelRefParse("anthropic:claude-opus-4-8"),
-		models.ModelRefParse("openai:gpt-5.5"),
-		models.ModelRefParse("xai:grok-4"),
-	}, 3)
-	p.Client = &yesClient{}
-	f := types.Finding{Agent: "anthropic:claude-opus-4-8", Title: "XSS", CWE: "CWE-79"}
-	r := New(p, nil, nil, nil)
-	confirmed, err := r.Validate(context.Background(), f)
+func (s stubPool) StopExploiting() bool { return false }
+
+func findRepoRoot(t *testing.T) string {
+	t.Helper()
+	abs, err := filepath.Abs(".")
 	if err != nil {
-		t.Fatalf("Validate failed: %v", err)
+		t.Fatal(err)
 	}
-	if !confirmed {
-		t.Errorf("expected confirmed finding")
+	for {
+		if _, err := os.Stat(filepath.Join(abs, "agents_md")); err == nil {
+			return abs
+		}
+		parent := filepath.Dir(abs)
+		if parent == abs {
+			t.Fatal("agents_md not found")
+		}
+		abs = parent
 	}
 }
 
-type yesClient struct{}
+func TestRunOfflineIntegration(t *testing.T) {
+	base := findRepoRoot(t)
+	lib := agents.Load(base)
+	workdir := filepath.Join(t.TempDir(), "runs", "ns-test")
+	wd := workdir
+	rlPath := filepath.Join(t.TempDir(), "rl_state_go.json")
+	cfg := types.NewRunConfig("http://example.test")
+	cfg.Offline = false
+	cfg.Workdir = &wd
+	cfg.RLPath = &rlPath
+	cfg.MaxAgents = 1
+	cfg.VoteN = 1
 
-func (yesClient) Chat(ctx context.Context, m models.ModelRef, system, user string) (string, error) {
-	return "yes", nil
-}
+	stub := stubPool{
+		reconJSON:   `{}`,
+		exploitJSON: `[{"title":"SQLi","severity":"Critical","cwe":"CWE-89","endpoint":"/x","evidence":"HTTP/1.1 200 OK Server: nginx","payload":"'","confidence":0.9}]`,
+	}
+	progress := make(chan string, 64)
+	go func() {
+		for range progress {
+		}
+	}()
 
-func (yesClient) ChatCLI(ctx context.Context, label, provider, model, system, user, mcpConfig string, progress chan<- string) (string, error) {
-	return "yes", nil
+	out := Run(context.Background(), cfg, lib, stub, progress)
+	if len(out.Findings) == 0 {
+		t.Fatal("expected findings")
+	}
+	if out.Findings[0].Title != "SQLi" {
+		t.Fatalf("got %+v", out.Findings[0])
+	}
+	data, err := os.ReadFile(filepath.Join(workdir, "findings.json"))
+	if err != nil {
+		t.Fatalf("findings.json: %v", err)
+	}
+	if !strings.Contains(string(data), "SQLi") {
+		t.Fatalf("findings.json content: %s", data)
+	}
 }

@@ -53,3 +53,14 @@ func TestExposureWithExploitOnSameHostNotFlagged(t *testing.T) {
 		t.Errorf("expected 0 depth notes, got %d", len(DepthAudit(v)))
 	}
 }
+
+func TestCalibrateVietnameseWeasel(t *testing.T) {
+	v := []types.Finding{testFinding("DoS", "High", "CWE-770", "https://a/x", "có thể gây quá tải", "")}
+	notes := Calibrate(&v)
+	if v[0].Severity != "Medium" {
+		t.Errorf("severity = %s", v[0].Severity)
+	}
+	if len(notes) == 0 {
+		t.Fatal("expected calibration note")
+	}
+}
