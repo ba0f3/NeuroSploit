@@ -47,8 +47,8 @@ func TestWorldModelObserveAndSetKnown(t *testing.T) {
 
 func TestWorldModelFrontier(t *testing.T) {
 	wm := WorldModel{Nodes: make(map[string]Node)}
-	wm.Add("a", KindVuln, "a", 0.5)   // high entropy
-	wm.Add("b", KindHost, "b", 0.98)  // low entropy
+	wm.Add("a", KindVuln, "a", 0.5)  // high entropy
+	wm.Add("b", KindHost, "b", 0.98) // low entropy
 	wm.Add("c", KindVuln, "c", 0.02) // low entropy
 
 	frontier := wm.Frontier(0.5)

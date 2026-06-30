@@ -185,4 +185,3 @@ func HygieneSummary(findings []types.Finding) []string {
 	}
 	return notes
 }
-

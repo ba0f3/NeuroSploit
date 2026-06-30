@@ -15,9 +15,9 @@ type Action struct {
 
 // Policy holds tunable decision thresholds.
 type Policy struct {
-	ExploreEntropy    float64
-	AssertMinP        float64
-	AssertMaxEntropy  float64
+	ExploreEntropy   float64
+	AssertMinP       float64
+	AssertMaxEntropy float64
 }
 
 // DefaultPolicy returns the standard decision thresholds.

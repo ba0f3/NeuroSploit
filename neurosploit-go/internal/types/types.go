@@ -72,10 +72,10 @@ type RunConfig struct {
 // NewRunConfig creates a RunConfig with default values.
 func NewRunConfig(target string) RunConfig {
 	return RunConfig{
-		Target:       target,
-		Models:       []string{"anthropic:claude-opus-4-8"},
-		VoteN:        3,
-		Concurrency:  8,
-		Pinned:       []string{},
+		Target:      target,
+		Models:      []string{"anthropic:claude-opus-4-8"},
+		VoteN:       3,
+		Concurrency: 8,
+		Pinned:      []string{},
 	}
 }

@@ -319,4 +319,3 @@ func DoLogin(ctx context.Context, l *Login) (string, string, error) {
 	}
 	return "", "", fmt.Errorf("login returned no Set-Cookie or token (HTTP %d)", status)
 }
-

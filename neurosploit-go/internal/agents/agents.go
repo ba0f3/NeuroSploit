@@ -9,12 +9,12 @@ import (
 
 // Agent represents a markdown specialist/meta agent loaded from agents_md/.
 type Agent struct {
-	Name    string
-	Title   string
-	CWE     string
-	Kind    string
-	System  string
-	User    string
+	Name   string
+	Title  string
+	CWE    string
+	Kind   string
+	System string
+	User   string
 }
 
 // Library is the loaded agents_md/ library split into six categories.

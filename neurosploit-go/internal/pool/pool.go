@@ -37,11 +37,11 @@ type ModelPool struct {
 	MCPConfig    string
 	Progress     chan<- string
 
-	cancel  atomic.Bool
-	soft    atomic.Bool
-	paused  atomic.Bool
-	resume  chan struct{}
-	mu      sync.Mutex
+	cancel   atomic.Bool
+	soft     atomic.Bool
+	paused   atomic.Bool
+	resume   chan struct{}
+	mu       sync.Mutex
 	fallback []models.ModelRef
 }
 
@@ -272,4 +272,3 @@ func (p *ModelPool) Vote(system, user string, n int, skip string) (int, int) {
 	}
 	return confirmed, total
 }
-

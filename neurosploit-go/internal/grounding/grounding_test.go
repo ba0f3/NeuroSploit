@@ -9,11 +9,11 @@ import (
 func TestGateKeepsEmpiricalReceipt(t *testing.T) {
 	findings := []types.Finding{
 		{
-			ID:         "emp-1",
-			Endpoint:   "http://example.com/login",
-			Evidence:   "HTTP/1.1 200 OK\nServer: nginx\nContent-Type: text/html",
-			Votes:      "",
-			Validated:  true,
+			ID:        "emp-1",
+			Endpoint:  "http://example.com/login",
+			Evidence:  "HTTP/1.1 200 OK\nServer: nginx\nContent-Type: text/html",
+			Votes:     "",
+			Validated: true,
 		},
 	}
 
