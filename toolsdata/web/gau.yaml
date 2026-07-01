@@ -1,0 +1,21 @@
+name: gau
+command: gau
+enabled: true
+short_description: GetAllUrls fetches known URLs from passive sources.
+description: |
+  gau discovers URLs from the Wayback Machine, Common Crawl, and Alien Vault.
+parameters:
+  - name: target
+    type: string
+    description: Domain to fetch URLs for.
+    required: true
+    position: 0
+    format: positional
+  - name: additional_args
+    type: string
+    description: Extra gau arguments.
+    required: false
+    format: positional
+timeout: 3m
+install_hint: go install github.com/lc/gau/v2/cmd/gau@latest
+tags: [web, recon, urls]

@@ -1,5 +1,17 @@
 # Host Port & Service Scan Agent
 
+## Tools
+nmap, rustscan, naabu, netexec
+
+## Skills
+network_recon, cve_scanning
+
+## Output Schema
+JSON array: {id,title,severity,cwe,endpoint,payload,evidence,impact,remediation,confidence}
+
+## Preconditions
+host, IP, infrastructure, ports
+
 ## User Prompt
 You are testing **{target}** (a host/infrastructure target) for open ports and service/version discovery.
 

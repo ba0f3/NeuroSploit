@@ -1,0 +1,21 @@
+name: nebula
+command: nebula
+enabled: true
+short_description: Generic nebula scanner placeholder.
+description: |
+  nebula is a placeholder for a custom/binary scanner named nebula. Use additional_args for its flags.
+parameters:
+  - name: target
+    type: string
+    description: Target to scan.
+    required: true
+    position: 0
+    format: positional
+  - name: additional_args
+    type: string
+    description: All nebula-specific flags.
+    required: false
+    format: positional
+timeout: 10m
+install_hint: install the nebula scanner binary and ensure it is on PATH
+tags: [network, custom]

@@ -1,0 +1,21 @@
+name: amass
+command: amass
+enabled: true
+short_description: In-depth attack surface mapping and asset discovery.
+description: |
+  amass performs DNS enumeration and network mapping of external assets.
+parameters:
+  - name: domain
+    type: string
+    description: Domain to enumerate.
+    required: true
+    flag: -d
+    format: flag
+  - name: additional_args
+    type: string
+    description: Extra amass arguments.
+    required: false
+    format: positional
+timeout: 15m
+install_hint: go install github.com/owasp-amass/amass/v4/...@master
+tags: [network, subdomain, recon]

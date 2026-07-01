@@ -535,9 +535,29 @@ Common flags (run / greybox / host / tui):
 --focus "<text>"         steer agent selection & execution
 --vote-n <n>             validator votes per finding (default 3)
 --max-agents <n>         cap agents (0 = all matching)
+--auto-tools             run allowlisted tools during exploit/chain (default: on; recon always runs tools)
+                         pass --auto-tools=false to disable exploit/chain toolloop only
+--interactive            prompt before each tool command
+--playbook <name>        run a YAML playbook instead of default pipeline
+--skills a,b,c           skills to inject (with --auto-skills)
+--auto-skills            inject --skills into agent prompts
+--disable-tools a,b      exclude tools from the registry
+--tool-timeout <min>     override per-tool timeout (0 = recipe default)
 --offline                pipeline self-test, no model calls
 -v, --verbose            log each agent, recon, votes
 ```
+
+### Playbook example
+
+```bash
+neurosploit run https://app.example.com \
+  --playbook "OWASP Top 10" \
+  --auto-tools \
+  --subscription \
+  -v
+```
+
+See [docs/PLAYBOOKS.md](docs/PLAYBOOKS.md) and [docs/SKILLS.md](docs/SKILLS.md) for format details.
 
 ---
 

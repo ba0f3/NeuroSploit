@@ -1,0 +1,28 @@
+name: dig
+command: dig
+enabled: true
+short_description: DNS lookup utility.
+description: |
+  dig queries DNS records for reconnaissance.
+parameters:
+  - name: target
+    type: string
+    description: Domain or IP.
+    required: true
+    position: 0
+    format: positional
+  - name: record_type
+    type: string
+    description: DNS record type, e.g. A, AAAA, MX, NS, TXT.
+    required: false
+    default: A
+    position: 1
+    format: positional
+  - name: additional_args
+    type: string
+    description: Extra dig arguments.
+    required: false
+    format: positional
+timeout: 30s
+install_hint: apt install dnsutils | brew install bind
+tags: [network, dns, recon]

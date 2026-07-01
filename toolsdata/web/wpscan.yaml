@@ -1,0 +1,21 @@
+name: wpscan
+command: wpscan
+enabled: true
+short_description: WordPress vulnerability scanner.
+description: |
+  wpscan identifies WordPress vulnerabilities, plugins, and users.
+parameters:
+  - name: target
+    type: string
+    description: Target WordPress URL.
+    required: true
+    flag: --url
+    format: flag
+  - name: additional_args
+    type: string
+    description: Extra wpscan arguments.
+    required: false
+    format: positional
+timeout: 15m
+install_hint: gem install wpscan
+tags: [web, wordpress, vulnscan]

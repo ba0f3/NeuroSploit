@@ -1,0 +1,28 @@
+name: rustscan
+command: rustscan
+enabled: true
+short_description: Fast port scanner that feeds nmap.
+description: |
+  rustscan quickly finds open ports and can pipe results into nmap.
+parameters:
+  - name: target
+    type: string
+    description: Hostname or IP to scan.
+    required: true
+    position: 0
+    format: positional
+  - name: ports
+    type: string
+    description: Comma-separated ports or ranges.
+    required: false
+    default: "1-65535"
+    flag: -p
+    format: combined
+  - name: additional_args
+    type: string
+    description: Extra rustscan arguments.
+    required: false
+    format: positional
+timeout: 5m
+install_hint: cargo install rustscan | docker run rustscan/rustscan
+tags: [network, portscan, recon]

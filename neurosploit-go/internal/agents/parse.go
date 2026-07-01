@@ -9,10 +9,14 @@ import (
 )
 
 var (
-	titleRe = regexp.MustCompile(`(?m)^#\s+(.+?)\s*$`)
-	cweRe   = regexp.MustCompile(`CWE-\d+`)
-	userRe  = regexp.MustCompile(`(?s)##\s*User Prompt\s*\n(.*?)(?:\n##\s|\z)`)
-	sysRe   = regexp.MustCompile(`(?s)##\s*System Prompt\s*\n(.*?)(?:\n##\s|\z)`)
+	titleRe         = regexp.MustCompile(`(?m)^#\s+(.+?)\s*$`)
+	cweRe           = regexp.MustCompile(`CWE-\d+`)
+	userRe          = regexp.MustCompile(`(?s)##\s*User Prompt\s*\n(.*?)(?:\n##\s|\z)`)
+	sysRe           = regexp.MustCompile(`(?s)##\s*System Prompt\s*\n(.*?)(?:\n##\s|\z)`)
+	toolsRe         = regexp.MustCompile(`(?s)##\s*Tools\s*\n(.*?)(?:\n##\s|\z)`)
+	skillsRe        = regexp.MustCompile(`(?s)##\s*Skills\s*\n(.*?)(?:\n##\s|\z)`)
+	schemaRe        = regexp.MustCompile(`(?s)##\s*Output Schema\s*\n(.*?)(?:\n##\s|\z)`)
+	preconditionsRe = regexp.MustCompile(`(?s)##\s*Preconditions\s*\n(.*?)(?:\n##\s|\z)`)
 )
 
 func parseAgentFile(name, kind, content string) Agent {
@@ -21,20 +25,36 @@ func parseAgentFile(name, kind, content string) Agent {
 		title = m[1]
 	}
 	cwe := cweRe.FindString(content)
-	var system, user string
+	var system, user, toolsSection, skillsSection, schemaSection, precondSection string
 	if m := sysRe.FindStringSubmatch(content); m != nil {
 		system = strings.TrimSpace(m[1])
 	}
 	if m := userRe.FindStringSubmatch(content); m != nil {
 		user = strings.TrimSpace(m[1])
 	}
+	if m := toolsRe.FindStringSubmatch(content); m != nil {
+		toolsSection = strings.TrimSpace(m[1])
+	}
+	if m := skillsRe.FindStringSubmatch(content); m != nil {
+		skillsSection = strings.TrimSpace(m[1])
+	}
+	if m := schemaRe.FindStringSubmatch(content); m != nil {
+		schemaSection = strings.TrimSpace(m[1])
+	}
+	if m := preconditionsRe.FindStringSubmatch(content); m != nil {
+		precondSection = strings.TrimSpace(m[1])
+	}
 	return Agent{
-		Name:   name,
-		Title:  title,
-		CWE:    cwe,
-		Kind:   kind,
-		System: system,
-		User:   user,
+		Name:          name,
+		Title:         title,
+		CWE:           cwe,
+		Kind:          kind,
+		System:        system,
+		User:          user,
+		Tools:         splitList(toolsSection),
+		Skills:        splitList(skillsSection),
+		OutputSchema:  schemaSection,
+		Preconditions: splitList(precondSection),
 	}
 }
 
@@ -86,4 +106,23 @@ func loadLibraryFromRoot(root string) Library {
 		Infra:  loadDir(filepath.Join(root, "infra"), "infra"),
 		Chains: loadDir(filepath.Join(root, "chains"), "chain"),
 	}
+}
+
+// splitList splits a comma/newline separated list into trimmed non-empty strings.
+func splitList(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		for _, line := range strings.Split(part, "\n") {
+			line = strings.TrimSpace(line)
+			line = strings.TrimPrefix(line, "-")
+			line = strings.TrimSpace(line)
+			if line != "" {
+				out = append(out, line)
+			}
+		}
+	}
+	return out
 }

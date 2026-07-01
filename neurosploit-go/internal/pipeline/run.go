@@ -10,11 +10,15 @@ import (
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/agents"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/attackgraph"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/belief"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/chainengine"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/grounding"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/hygiene"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/models"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pool"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/rl"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/skills"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/toolloop"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/tools"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
 	"golang.org/x/sync/errgroup"
 )
@@ -34,8 +38,12 @@ type RunOutput struct {
 type PoolCaller interface {
 	SetProgress(chan<- string)
 	Complete(label string, task pool.Task, system, user string) (models.ModelRef, string, error)
+	CompleteWithTools(label string, task pool.Task, system, user string, tools []map[string]any) (models.ModelRef, string, error)
 	Vote(system, user string, n int, skip string) (confirmed, total int)
 	StopExploiting() bool
+	Tools() *tools.Registry
+	Executor() tools.Executor
+	Skills() *skills.Library
 }
 
 type exploitResult struct {
@@ -49,12 +57,13 @@ func Run(ctx context.Context, cfg types.RunConfig, lib agents.Library, p PoolCal
 	p.SetProgress(progress)
 	mcpOn := mcpEnabled(p)
 	sendProgress(progress, fmt.Sprintf(
-		"Loaded %d agents (%d vuln / %d recon / %d code / %d meta) · models: %s · vote_n=%d · concurrency=%d%s",
+		"Loaded %d agents (%d vuln / %d recon / %d code / %d meta)%s · models: %s · vote_n=%d · concurrency=%d%s",
 		lib.Total(), len(lib.Vulns), len(lib.Recon), len(lib.Code), len(lib.Meta),
+		loadedToolsSkills(p),
 		poolModelLabels(p), cfg.VoteN, cfg.Concurrency, mcpSuffix(mcpOn),
 	))
 
-	recon := runRecon(ctx, cfg, p, progress, mcpOn)
+	recon, toolLog := runRecon(ctx, cfg, p, progress, mcpOn)
 
 	var rlState rl.State
 	if cfg.RLPath != nil {
@@ -67,7 +76,7 @@ func Run(ctx context.Context, cfg types.RunConfig, lib agents.Library, p PoolCal
 		selected := takeAgents(ranked, cap)
 		sendProgress(progress, fmt.Sprintf("selected %d specialist agents (RL-ranked)", len(selected)))
 		sendProgress(progress, "offline: no exploitation performed (provide API keys or --subscription to run live)")
-		artifacts := persist(cfg, recon, "", nil)
+		artifacts := persist(cfg, recon, "", toolLog, nil)
 		return buildOutput(cfg, recon, nil, selected, 0, artifacts)
 	}
 
@@ -92,33 +101,128 @@ func Run(ctx context.Context, cfg types.RunConfig, lib agents.Library, p PoolCal
 	sendProgress(progress, fmt.Sprintf("%d candidate finding(s) (deduped) — validating by %d-model vote", len(candidates), cfg.VoteN))
 
 	findings := validate(candidates, p, voteSys, cfg.VoteN, progress)
-	chained := chainRound(p, cfg.Target, recon, operatorDirectives(cfg), findings, lib.Chains, progress, mcpOn)
+	chained := runChainEngine(ctx, cfg, p, recon, findings, lib.Chains, progress, mcpOn)
 	if len(chained) > 0 {
 		extra := validate(dedupFindings(chained), p, voteSys, cfg.VoteN, progress)
 		sendProgress(progress, fmt.Sprintf("chaining added %d validated finding(s)", len(extra)))
 		findings = append(findings, extra...)
 		findings = dedupFindings(findings)
 	}
-	return finish(cfg, recon, transcript, findings, selected, &rlState, progress)
+	return finish(cfg, recon, transcript, toolLog, findings, selected, &rlState, progress)
 }
 
-func runRecon(ctx context.Context, cfg types.RunConfig, p PoolCaller, progress chan<- string, mcpOn bool) string {
+func selectTools(reg *tools.Registry, mode string, requested []string) []tools.Tool {
+	if reg == nil {
+		return nil
+	}
+	var out []tools.Tool
+	if len(requested) > 0 {
+		for _, name := range requested {
+			if t, ok := reg.Get(name); ok {
+				out = append(out, t)
+			}
+		}
+		return out
+	}
+	defaults := map[string][]string{
+		"recon": {"httpx", "whatweb", "katana", "nmap", "nuclei", "gau", "subfinder"},
+		"host":  {"nmap", "rustscan", "naabu"},
+	}
+	for _, name := range defaults[mode] {
+		if t, ok := reg.Get(name); ok {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func injectSkills(p PoolCaller, ag agents.Agent, system string, cfg types.RunConfig) string {
+	names := ag.Skills
+	if cfg.AutoSkills && len(cfg.Skills) > 0 {
+		names = append(names, cfg.Skills...)
+	}
+	if p.Skills() == nil || len(names) == 0 {
+		return system
+	}
+	seen := make(map[string]bool)
+	var blocks []string
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		if s, ok := p.Skills().Get(name); ok {
+			blocks = append(blocks, s.PromptBlock())
+		}
+	}
+	if len(blocks) == 0 {
+		return system
+	}
+	return system + "\n\n" + strings.Join(blocks, "\n\n")
+}
+
+func runWithToolLoop(ctx context.Context, p PoolCaller, label string, task pool.Task, system, user string, toolList []tools.Tool, progress chan<- string) (string, []toolloop.Observation, error) {
+	if len(toolList) == 0 || p.Executor() == nil {
+		_, text, err := p.Complete(label, task, system, user)
+		return text, nil, err
+	}
+	caller := toolloop.CallerFunc(func(ctx context.Context, system, user string, toolsJSON []map[string]any) (string, error) {
+		_, text, err := p.CompleteWithTools(label, task, system, user, toolsJSON)
+		return text, err
+	})
+	loop := &toolloop.Loop{
+		Caller:   caller,
+		Executor: p.Executor(),
+		MaxIter:  10,
+		Progress: progress,
+	}
+	sendProgress(progress, fmt.Sprintf("toolloop enabled for %s with tools: %s", label, toolNames(toolList)))
+	return loop.Run(ctx, system, user, toolList)
+}
+
+func toolNames(list []tools.Tool) string {
+	var names []string
+	for _, t := range list {
+		names = append(names, t.Name)
+	}
+	return strings.Join(names, ", ")
+}
+
+func runRecon(ctx context.Context, cfg types.RunConfig, p PoolCaller, progress chan<- string, mcpOn bool) (string, string) {
 	if cfg.Offline {
 		sendProgress(progress, "recon: offline mode — skipping model calls")
-		return "{}"
+		return "{}", ""
 	}
 	select {
 	case <-ctx.Done():
-		return "{}"
+		return "{}", ""
 	default:
 	}
 	reconUser := fmt.Sprintf("%s%sTarget: %s", operatorDirectives(cfg), toolDoctrine(mcpOn), cfg.Target)
-	m, text, err := p.Complete("recon", pool.TaskRecon, reconSys, reconUser)
+	var m models.ModelRef
+	var text string
+	var toolLog string
+	var err error
+	if p.Tools() != nil && p.Executor() != nil {
+		var obs []toolloop.Observation
+		toolList := selectTools(p.Tools(), "recon", nil)
+		text, obs, err = runWithToolLoop(ctx, p, "recon", pool.TaskRecon, reconSys, reconUser, toolList, progress)
+		toolLog = formatToolLog(obs)
+		text = finalizeReconText(text)
+	} else {
+		m, text, err = p.Complete("recon", pool.TaskRecon, reconSys, reconUser)
+		text = finalizeReconText(text)
+	}
 	if err != nil {
 		sendProgress(progress, fmt.Sprintf("recon failed (%v) — continuing with empty recon", err))
-		return "{}"
+		return "{}", toolLog
 	}
-	sendProgress(progress, fmt.Sprintf("recon complete via %s", m.Label()))
+	if m.Label() != "" {
+		sendProgress(progress, fmt.Sprintf("recon complete via %s", m.Label()))
+	} else {
+		sendProgress(progress, "recon complete")
+	}
 	if cfg.Verbose {
 		snip := stripCodeFences(text)
 		if len([]rune(snip)) > 280 {
@@ -126,7 +230,7 @@ func runRecon(ctx context.Context, cfg types.RunConfig, p PoolCaller, progress c
 		}
 		sendProgress(progress, fmt.Sprintf("  recon> %s", strings.ReplaceAll(snip, "\n", " ")))
 	}
-	return text
+	return text, toolLog
 }
 
 type exploitUserBuilder struct {
@@ -145,19 +249,19 @@ func (b exploitUserBuilder) build(ag agents.Agent, recon string) string {
 	})
 	if b.host {
 		return fmt.Sprintf(
-			"AUTHORIZED host engagement on %s. Proceed and PROVE each issue with raw tool output.\n\n%s%s%s%s\n\nReply ONLY a JSON array of confirmed findings (may be []): {id,title,severity,cwe,endpoint,payload,evidence,impact,remediation,confidence}.",
-			b.target, b.directives, hostTooling, reactDoctrine, body,
+			"AUTHORIZED host engagement on %s. Proceed and PROVE each issue with raw tool output.\n\n%s%s%s%s%s%s\n\n%s",
+			b.target, b.directives, hostTooling, reactDoctrine, evidenceDoctrine, severityDoctrine, body, outputSchemaDoctrine,
 		)
 	}
 	if b.greybox {
 		return fmt.Sprintf(
-			"AUTHORIZED greybox engagement on %s — you also have the source review below. Proceed and PROVE each issue against the LIVE app.\n\n%s%s%s%s%s%s\n\nReply ONLY a JSON array of confirmed findings (may be []): {id,title,severity,cwe,endpoint,payload,evidence,impact,remediation,confidence}.",
-			b.target, b.directives, b.leads, reactDoctrine, depthDoctrine, toolDoctrine(b.mcpOn), body,
+			"AUTHORIZED greybox engagement on %s — you also have the source review below. Proceed and PROVE each issue against the LIVE app.\n\n%s%s%s%s%s%s%s\n\n%s",
+			b.target, b.directives, b.leads, reactDoctrine, depthDoctrine, evidenceDoctrine, toolDoctrine(b.mcpOn), body, outputSchemaDoctrine,
 		)
 	}
 	return fmt.Sprintf(
-		"AUTHORIZED engagement — you have explicit permission to test %s. Do not ask for confirmation — proceed and PROVE each issue.\n\n%s%s%s%s%s\n\nWhen done, reply with ONLY a JSON array of confirmed findings (may be empty []). Each item: {id,title,severity,cwe,endpoint,payload,evidence,impact,remediation,confidence}. `evidence` must contain the concrete proof (request/response excerpt).",
-		b.target, b.directives, reactDoctrine, depthDoctrine, toolDoctrine(b.mcpOn), body,
+		"AUTHORIZED engagement — you have explicit permission to test %s. Do not ask for confirmation — proceed and PROVE each issue.\n\n%s%s%s%s%s%s%s\n\n%s",
+		b.target, b.directives, reactDoctrine, depthDoctrine, evidenceDoctrine, severityDoctrine, toolDoctrine(b.mcpOn), body, outputSchemaDoctrine,
 	)
 }
 
@@ -189,7 +293,19 @@ func parallelExploit(ctx context.Context, cfg types.RunConfig, selected []agents
 				sendProgress(progress, fmt.Sprintf("  ▶ launching agent: %s (%s)", ag.Name, strings.ReplaceAll(ag.Title, " Agent", "")))
 			}
 			user := builder.build(ag, reconCtx)
-			m, text, err := p.Complete(ag.Name, pool.TaskExploit, ag.System, user)
+			system := injectSkills(p, ag, ag.System, cfg)
+			if ag.OutputSchema != "" {
+				system = system + "\n\n" + agentOutputSchema(ag)
+			}
+			var m models.ModelRef
+			var text string
+			var err error
+			if (cfg.AutoTools || len(ag.Tools) > 0) && p.Tools() != nil && p.Executor() != nil {
+				toolList := selectTools(p.Tools(), "exploit", ag.Tools)
+				text, _, err = runWithToolLoop(ctx, p, ag.Name, pool.TaskExploit, system, user, toolList, progress)
+			} else {
+				m, text, err = p.Complete(ag.Name, pool.TaskExploit, system, user)
+			}
 			if err != nil {
 				sendProgress(progress, fmt.Sprintf("exploit %s failed: %v", ag.Name, err))
 				results[i] = exploitResult{name: ag.Name, text: fmt.Sprintf("ERROR: %v", err)}
@@ -208,44 +324,45 @@ func parallelExploit(ctx context.Context, cfg types.RunConfig, selected []agents
 	return results
 }
 
-func chainRound(p PoolCaller, target, recon, directives string, confirmed []types.Finding, chains []agents.Agent, progress chan<- string, mcpOn bool) []types.Finding {
+func runChainEngine(ctx context.Context, cfg types.RunConfig, p PoolCaller, recon string, confirmed []types.Finding, chains []agents.Agent, progress chan<- string, mcpOn bool) []types.Finding {
 	if len(confirmed) == 0 {
 		return nil
 	}
-	var summary strings.Builder
-	for i, f := range confirmed {
-		if i >= 20 {
-			break
-		}
-		fmt.Fprintf(&summary, "- [%s] %s @ %s (%s)\n", f.Severity, f.Title, f.Endpoint, f.CWE)
-	}
-	var recipes strings.Builder
-	for _, a := range chains {
-		fmt.Fprintf(&recipes, "- %s\n", strings.ReplaceAll(a.Title, " Agent", ""))
-	}
-	recipeBlock := ""
-	if recipes.Len() > 0 {
-		recipeBlock = fmt.Sprintf("KNOWN CHAIN RECIPES (apply any that fit):\n%s\n\n", recipes.String())
-	}
 	sendProgress(progress, fmt.Sprintf("chaining %d confirmed finding(s) for deeper impact…", len(confirmed)))
-	reconCtx := recon
-	if len([]rune(reconCtx)) > 2500 {
-		reconCtx = string([]rune(reconCtx)[:2500])
+	doctrine := reactDoctrine + depthDoctrine + toolDoctrine(mcpOn)
+	engine := &chainengine.Engine{
+		Caller: &chainStageCaller{pool: p, cfg: cfg, mcpOn: mcpOn},
+		ParseFindings: func(text, agent string) []types.Finding {
+			return extractFindings(text, agent)
+		},
+		Progress: progress,
 	}
-	user := fmt.Sprintf(
-		"AUTHORIZED engagement on %s.\n\n%s%s%s%s%sCONFIRMED FINDINGS TO CHAIN:\n%s\n\nRecon:\n%s\n\n"+
-			"Chain these into deeper impact (e.g. SQLi→RCE→LPE, SSRF→cloud creds, upload→LFI→RCE) and PROVE each stage. "+
-			"Reply ONLY a JSON array of NEW findings (may be []): {id,title,severity,cwe,endpoint,payload,evidence,impact,remediation,confidence}.",
-		target, directives, reactDoctrine, depthDoctrine, toolDoctrine(mcpOn), recipeBlock, summary.String(), reconCtx,
-	)
-	m, text, err := p.Complete("chain", pool.TaskExploit, chainSys, user)
-	if err != nil {
-		sendProgress(progress, fmt.Sprintf("chaining failed: %v", err))
-		return nil
+	return engine.Run(ctx, chainengine.Config{
+		Target:      cfg.Target,
+		Recon:       recon,
+		Directives:  operatorDirectives(cfg),
+		Confirmed:   confirmed,
+		Chains:      chains,
+		ChainSystem: chainSys,
+		Doctrine:    doctrine,
+	})
+}
+
+type chainStageCaller struct {
+	pool  PoolCaller
+	cfg   types.RunConfig
+	mcpOn bool
+}
+
+func (c *chainStageCaller) RunStage(ctx context.Context, ag agents.Agent, user string) (string, error) {
+	system := injectSkills(c.pool, ag, chainSys, c.cfg)
+	if (c.cfg.AutoTools || len(ag.Tools) > 0) && c.pool.Tools() != nil && c.pool.Executor() != nil {
+		toolList := selectTools(c.pool.Tools(), "exploit", ag.Tools)
+		text, _, err := runWithToolLoop(ctx, c.pool, "chain:"+ag.Name, pool.TaskExploit, system, user, toolList, nil)
+		return text, err
 	}
-	f := extractFindings(text, "chain")
-	sendProgress(progress, fmt.Sprintf("chain via %s → %d new candidate(s)", m.Label(), len(f)))
-	return f
+	_, text, err := c.pool.Complete("chain:"+ag.Name, pool.TaskExploit, system, user)
+	return text, err
 }
 
 func validate(candidates []types.Finding, p PoolCaller, sys string, voteN int, progress chan<- string) []types.Finding {
@@ -286,7 +403,7 @@ func validate(candidates []types.Finding, p PoolCaller, sys string, voteN int, p
 	return out
 }
 
-func finish(cfg types.RunConfig, recon, transcript string, findings []types.Finding, selected []agents.Agent, rlState *rl.State, progress chan<- string) RunOutput {
+func finish(cfg types.RunConfig, recon, transcript, toolLog string, findings []types.Finding, selected []agents.Agent, rlState *rl.State, progress chan<- string) RunOutput {
 	whitebox := cfg.Repo != nil && strings.HasPrefix(cfg.Target, "/")
 	before := len(findings)
 	kept, demoted := grounding.Gate(findings, transcript, whitebox)
@@ -344,7 +461,7 @@ func finish(cfg types.RunConfig, recon, transcript string, findings []types.Find
 		}
 	}
 
-	artifacts := persist(cfg, recon, transcript, findings)
+	artifacts := persist(cfg, recon, transcript, toolLog, findings)
 	if len(artifacts) > 0 {
 		wd := ""
 		if cfg.Workdir != nil {
@@ -474,6 +591,17 @@ func sendProgress(ch chan<- string, msg string) {
 	case ch <- msg:
 	default:
 	}
+}
+
+func loadedToolsSkills(p PoolCaller) string {
+	nTools, nSkills := 0, 0
+	if reg := p.Tools(); reg != nil {
+		nTools = len(reg.List())
+	}
+	if lib := p.Skills(); lib != nil {
+		nSkills = len(lib.List())
+	}
+	return fmt.Sprintf(" · %d tools · %d skills", nTools, nSkills)
 }
 
 func mcpEnabled(p PoolCaller) bool {

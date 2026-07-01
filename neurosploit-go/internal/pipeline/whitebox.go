@@ -11,8 +11,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/agents"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/models"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pool"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/rl"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/toolloop"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
 	"golang.org/x/sync/errgroup"
 )
@@ -30,8 +32,8 @@ var skipPathMarkers = []string{"/.git/", "/node_modules/", "/target/", "/vendor/
 // RunWhitebox analyses a repository's source for vulnerabilities.
 func RunWhitebox(ctx context.Context, cfg types.RunConfig, lib agents.Library, p PoolCaller, progress chan<- string) RunOutput {
 	p.SetProgress(progress)
-	sendProgress(progress, fmt.Sprintf("WHITEBOX · repo: %s · %d code agents · models: %s",
-		cfg.Target, len(lib.Code), poolModelLabels(p)))
+	sendProgress(progress, fmt.Sprintf("WHITEBOX · repo: %s · %d code agents%s · models: %s",
+		cfg.Target, len(lib.Code), loadedToolsSkills(p), poolModelLabels(p)))
 
 	context := collectRepoContext(cfg.Target, 200, 120_000)
 	bytes := len(context)
@@ -54,7 +56,7 @@ func RunWhitebox(ctx context.Context, cfg types.RunConfig, lib agents.Library, p
 	sendProgress(progress, fmt.Sprintf("selected %d code-analysis agents", len(selected)))
 
 	if cfg.Offline || bytes == 0 {
-		artifacts := persist(cfg, "{}", context, nil)
+		artifacts := persist(cfg, "{}", context, "", nil)
 		return buildOutput(cfg, "", nil, selected, 0, artifacts)
 	}
 
@@ -101,7 +103,7 @@ func RunWhitebox(ctx context.Context, cfg types.RunConfig, lib agents.Library, p
 	candidates := dedupFindings(flattenFindings(results))
 	sendProgress(progress, fmt.Sprintf("%d candidate finding(s) (deduped) — validating", len(candidates)))
 	findings := validate(candidates, p, codeVoteSys, cfg.VoteN, progress)
-	return finish(cfg, "{}", transcript, findings, selected, &rlState, progress)
+	return finish(cfg, "{}", transcript, "", findings, selected, &rlState, progress)
 }
 
 // RunGreybox reviews source code and exploits the running app in one pipeline.
@@ -111,11 +113,11 @@ func RunGreybox(ctx context.Context, cfg types.RunConfig, lib agents.Library, p 
 	if cfg.Repo != nil {
 		repo = *cfg.Repo
 	}
-	sendProgress(progress, fmt.Sprintf("GREYBOX · live: %s · repo: %s · %d code agents",
-		cfg.Target, repo, len(lib.Code)))
+	sendProgress(progress, fmt.Sprintf("GREYBOX · live: %s · repo: %s · %d code agents%s",
+		cfg.Target, repo, len(lib.Code), loadedToolsSkills(p)))
 
 	mcpOn := mcpEnabled(p)
-	recon := runRecon(ctx, cfg, p, progress, mcpOn)
+	recon, toolLog := runRecon(ctx, cfg, p, progress, mcpOn)
 
 	context := collectRepoContext(repo, 200, 90_000)
 	sendProgress(progress, fmt.Sprintf("collected %d bytes of source for code review", len(context)))
@@ -163,7 +165,7 @@ func RunGreybox(ctx context.Context, cfg types.RunConfig, lib agents.Library, p 
 	if cfg.Offline {
 		selected := takeAgents(ranked, cap)
 		sendProgress(progress, fmt.Sprintf("offline: selected %d agent(s); no live exploitation", len(selected)))
-		artifacts := persist(cfg, recon, codeLeads, nil)
+		artifacts := persist(cfg, recon, codeLeads, toolLog, nil)
 		return buildOutput(cfg, recon, nil, selected, 0, artifacts)
 	}
 
@@ -190,23 +192,23 @@ func RunGreybox(ctx context.Context, cfg types.RunConfig, lib agents.Library, p 
 	candidates := dedupFindings(flattenFindings(raw))
 	sendProgress(progress, fmt.Sprintf("%d candidate finding(s) (deduped) — validating", len(candidates)))
 	findings := validate(candidates, p, voteSys, cfg.VoteN, progress)
-	chained := chainRound(p, cfg.Target, recon, operatorDirectives(cfg), findings, lib.Chains, progress, mcpOn)
+	chained := runChainEngine(ctx, cfg, p, recon, findings, lib.Chains, progress, mcpOn)
 	if len(chained) > 0 {
 		extra := validate(dedupFindings(chained), p, voteSys, cfg.VoteN, progress)
 		sendProgress(progress, fmt.Sprintf("chaining added %d validated finding(s)", len(extra)))
 		findings = append(findings, extra...)
 		findings = dedupFindings(findings)
 	}
-	return finish(cfg, recon, transcript, findings, selected, &rlState, progress)
+	return finish(cfg, recon, transcript, toolLog, findings, selected, &rlState, progress)
 }
 
 // RunHost scans and tests an infrastructure target.
 func RunHost(ctx context.Context, cfg types.RunConfig, lib agents.Library, p PoolCaller, progress chan<- string) RunOutput {
 	p.SetProgress(progress)
-	sendProgress(progress, fmt.Sprintf("HOST · target: %s · %d infra agents · models: %s",
-		cfg.Target, len(lib.Infra), poolModelLabels(p)))
+	sendProgress(progress, fmt.Sprintf("HOST · target: %s · %d infra agents%s · models: %s",
+		cfg.Target, len(lib.Infra), loadedToolsSkills(p), poolModelLabels(p)))
 
-	recon := runHostRecon(ctx, cfg, p, progress)
+	recon, toolLog := runHostRecon(ctx, cfg, p, progress)
 
 	var rlState rl.State
 	if cfg.RLPath != nil {
@@ -222,7 +224,7 @@ func RunHost(ctx context.Context, cfg types.RunConfig, lib agents.Library, p Poo
 	if cfg.Offline {
 		selected := takeAgents(ranked, cap)
 		sendProgress(progress, fmt.Sprintf("offline: selected %d infra agent(s); no live testing", len(selected)))
-		artifacts := persist(cfg, recon, "", nil)
+		artifacts := persist(cfg, recon, "", toolLog, nil)
 		return buildOutput(cfg, recon, nil, selected, 0, artifacts)
 	}
 
@@ -249,32 +251,49 @@ func RunHost(ctx context.Context, cfg types.RunConfig, lib agents.Library, p Poo
 	candidates := dedupFindings(flattenFindings(raw))
 	sendProgress(progress, fmt.Sprintf("%d candidate finding(s) (deduped) — validating", len(candidates)))
 	findings := validate(candidates, p, voteSys, cfg.VoteN, progress)
-	chained := chainRound(p, cfg.Target, recon, operatorDirectives(cfg), findings, lib.Chains, progress, false)
+	chained := runChainEngine(ctx, cfg, p, recon, findings, lib.Chains, progress, false)
 	if len(chained) > 0 {
 		extra := validate(dedupFindings(chained), p, voteSys, cfg.VoteN, progress)
 		findings = append(findings, extra...)
 		findings = dedupFindings(findings)
 	}
-	return finish(cfg, recon, transcript, findings, selected, &rlState, progress)
+	return finish(cfg, recon, transcript, toolLog, findings, selected, &rlState, progress)
 }
 
-func runHostRecon(ctx context.Context, cfg types.RunConfig, p PoolCaller, progress chan<- string) string {
+func runHostRecon(ctx context.Context, cfg types.RunConfig, p PoolCaller, progress chan<- string) (string, string) {
 	if cfg.Offline {
-		return "{}"
+		return "{}", ""
 	}
 	select {
 	case <-ctx.Done():
-		return "{}"
+		return "{}", ""
 	default:
 	}
 	user := fmt.Sprintf("%s%sTarget host: %s", operatorDirectives(cfg), hostTooling, cfg.Target)
-	m, text, err := p.Complete("recon", pool.TaskRecon, hostReconSys, user)
+	var m models.ModelRef
+	var text string
+	var toolLog string
+	var err error
+	if p.Tools() != nil && p.Executor() != nil {
+		var obs []toolloop.Observation
+		toolList := selectTools(p.Tools(), "host", nil)
+		text, obs, err = runWithToolLoop(ctx, p, "recon", pool.TaskRecon, hostReconSys, user, toolList, progress)
+		toolLog = formatToolLog(obs)
+		text = finalizeReconText(text)
+	} else {
+		m, text, err = p.Complete("recon", pool.TaskRecon, hostReconSys, user)
+		text = finalizeReconText(text)
+	}
 	if err != nil {
 		sendProgress(progress, fmt.Sprintf("recon failed (%v)", err))
-		return "{}"
+		return "{}", toolLog
 	}
-	sendProgress(progress, fmt.Sprintf("recon complete via %s", m.Label()))
-	return text
+	if m.Label() != "" {
+		sendProgress(progress, fmt.Sprintf("recon complete via %s", m.Label()))
+	} else {
+		sendProgress(progress, "recon complete")
+	}
+	return text, toolLog
 }
 
 func parallelCodeReview(ctx context.Context, cfg types.RunConfig, codeAgents []agents.Agent, p PoolCaller, progress chan<- string, context string) []types.Finding {

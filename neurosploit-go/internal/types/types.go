@@ -67,6 +67,13 @@ type RunConfig struct {
 	Auth         *string  `json:"auth,omitempty"`
 	Repo         *string  `json:"repo,omitempty"`
 	Pinned       []string `json:"pinned"`
+	AutoTools    bool     `json:"auto_tools,omitempty"`
+	Interactive  bool     `json:"interactive,omitempty"`
+	ToolTimeout  int      `json:"tool_timeout,omitempty"`
+	Playbook     string   `json:"playbook,omitempty"`
+	Skills       []string `json:"skills,omitempty"`
+	DisableTools []string `json:"disable_tools,omitempty"`
+	AutoSkills   bool     `json:"auto_skills,omitempty"`
 }
 
 // NewRunConfig creates a RunConfig with default values.
@@ -76,6 +83,7 @@ func NewRunConfig(target string) RunConfig {
 		Models:      []string{"anthropic:claude-opus-4-8"},
 		VoteN:       3,
 		Concurrency: 8,
+		AutoTools:   true,
 		Pinned:      []string{},
 	}
 }

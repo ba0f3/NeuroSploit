@@ -1,0 +1,27 @@
+name: ssh
+command: ssh
+enabled: true
+short_description: Secure shell remote access.
+description: |
+  ssh connects to remote Linux/Unix hosts for command execution and enumeration.
+parameters:
+  - name: target
+    type: string
+    description: user@host.
+    required: true
+    position: 0
+    format: positional
+  - name: command
+    type: string
+    description: Command to execute.
+    required: false
+    flag: ""
+    format: positional
+  - name: additional_args
+    type: string
+    description: Extra ssh arguments.
+    required: false
+    format: positional
+timeout: 30s
+install_hint: apt install openssh-client | brew install openssh
+tags: [host, linux, remote]

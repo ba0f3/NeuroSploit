@@ -1,0 +1,47 @@
+name: curl
+command: curl
+enabled: true
+short_description: Transfer data with URLs.
+description: |
+  curl performs HTTP requests and is used for manual probing, header inspection, and PoC validation.
+parameters:
+  - name: url
+    type: string
+    description: Target URL.
+    required: true
+    position: 0
+    format: positional
+  - name: method
+    type: string
+    description: HTTP method.
+    required: false
+    default: GET
+    flag: -X
+    format: flag
+  - name: headers
+    type: string
+    description: "Extra headers, e.g. \"Authorization: bearer xyz\"."
+    required: false
+    flag: -H
+    format: flag
+  - name: data
+    type: string
+    description: POST data.
+    required: false
+    flag: -d
+    format: flag
+  - name: follow_redirects
+    type: bool
+    description: Follow redirects.
+    required: false
+    default: true
+    flag: -L
+    format: flag
+  - name: additional_args
+    type: string
+    description: Extra curl arguments.
+    required: false
+    format: positional
+timeout: 30s
+install_hint: apt install curl | brew install curl
+tags: [web, http, manual]

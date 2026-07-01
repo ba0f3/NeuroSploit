@@ -1,0 +1,27 @@
+name: netexec
+command: netexec
+enabled: true
+short_description: Network execution and post-exploitation tool.
+description: |
+  netexec (formerly crackmapexec) enumerates and executes commands on Windows/Active Directory targets.
+parameters:
+  - name: protocol
+    type: string
+    description: "Protocol: smb, winrm, ssh, ldap, mssql, ftp."
+    required: true
+    position: 0
+    format: positional
+  - name: target
+    type: string
+    description: Target host or CIDR.
+    required: true
+    position: 1
+    format: positional
+  - name: additional_args
+    type: string
+    description: Extra netexec arguments.
+    required: false
+    format: positional
+timeout: 5m
+install_hint: pip install netexec
+tags: [host, windows, ad, post]

@@ -1,0 +1,19 @@
+name: API Security Assessment
+description: Focused assessment of REST and GraphQL APIs.
+tags: [api, rest, graphql]
+variables:
+  - name: target
+    type: string
+    required: true
+phases:
+  - name: api_discovery
+    tools: [httpx, katana, gau]
+    skills: [web_recon, api_security]
+    post_analysis: |
+      Discover all API endpoints, OpenAPI/Swagger docs, GraphQL introspection, and versioned paths.
+  - name: api_vulnerabilities
+    tools: [nuclei, curl]
+    agents: [api_bola_chained, api_excessive_data, api_rate_limiting, bola, bfla, idor, jwt_manipulation, jwt_alg_confusion, mass_assignment, ssrf, command_injection]
+    skills: [api_security, auth_testing]
+    post_analysis: |
+      Test for broken authentication, BOLA/IDOR, mass assignment, rate limiting bypass, JWT issues, and SSRF.

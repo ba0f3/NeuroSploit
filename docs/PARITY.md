@@ -18,12 +18,17 @@ This document tracks the status of the `neurosploit-go` port relative to `neuros
 | `harness/src/pool.rs` | `internal/pool` | ✅ | Semaphore, failover, pause/resume, voting. |
 | `harness/src/mcpbridge.rs` (design) | `internal/mcpbridge` | ✅ | Bash allowlist + `mvdan.cc/sh` parse; read/write/web. |
 | `harness/src/report.rs` | `internal/report` | ✅ | HTML report for persist. |
-| `harness/src/pipeline.rs` | `internal/pipeline` | ✅ | Run/Whitebox/Greybox/Host; recon→select→exploit→vote→chain. |
+| `harness/src/pipeline.rs` | `internal/pipeline` | ✅ | Run/Whitebox/Greybox/Host; recon→select→exploit→vote→chain; playbook mode via `--playbook`. |
 | `harness/src/rl.rs` | `internal/rl` | ✅ | Already implemented (existing). |
-| `app/src/main.rs` | `cmd/neurosploit` | ✅ | Cobra subcommands; default entry starts REPL. |
+| `app/src/main.rs` | `cmd/neurosploit` | ✅ | Cobra subcommands; `--playbook`, `--auto-tools`, `--interactive`, tool flags. |
 | `app/src/repl.rs` | `internal/repl` | ✅ | liner REPL with tab completion, history, slash commands. |
 | `app/src/tui.rs` | `internal/tui` | ✅ | bubbletea Mission Control TUI; stdio wizard helpers retained. |
-| `agents_md/*.md` | `agents_md/*.md` | ✅ | Shared, unchanged. |
+| `agents_md/*.md` | `agents_md/*.md` | ✅ | Shared; incremental `Tools`/`Skills`/`Output Schema` metadata. |
+| — | `internal/tools` | ✅ | YAML tool recipes (`toolsdata/`), executor, dangerous-command guard. |
+| — | `internal/toolloop` | ✅ | ReAct loop; native `tool_calls` + `<tool_call>` fallback. |
+| — | `internal/skills` | ✅ | `skills_md/` loader and prompt injection. |
+| — | `internal/playbooks` | ✅ | YAML playbook engine with phased execution. |
+| — | `internal/chainengine` | ✅ | Stateful chain stages with precondition checks and early stop. |
 
 ## Deviation Log
 
@@ -32,6 +37,8 @@ This document tracks the status of the `neurosploit-go` port relative to `neuros
 3. **TUI**: Rust uses ratatui full-screen. Go uses bubbletea Mission Control (`neurosploit tui <url>`); stdio wizard helpers remain for non-terminal flows.
 4. **REPL**: Go uses `peterh/liner` (line editing, tab completion, `.neurosploit/history`). Default `neurosploit` with no subcommand starts the REPL.
 5. **CLI `--offline`**: Go stub mode runs the full pipeline with canned responses (self-test); Rust `cfg.offline` skips live exploitation.
+6. **Tools/skills/playbooks**: Go-only extensions — `toolsdata/`, `skills_md/`, `playbooks/` with ReAct toolloop. Rust harness uses inline shell doctrine only.
+7. **Chain engine**: Go runs chain agents sequentially with precondition matching and early stop; Rust uses a single chain LLM round.
 
 ## Verification
 

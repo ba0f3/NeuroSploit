@@ -10,6 +10,8 @@ import (
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/agents"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/models"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pool"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/skills"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/tools"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
 )
 
@@ -37,6 +39,13 @@ func (s stubPool) Complete(label string, task pool.Task, system, user string) (m
 func (s stubPool) Vote(system, user string, n int, skip string) (int, int) { return n, n }
 
 func (s stubPool) StopExploiting() bool { return false }
+
+func (s stubPool) Tools() *tools.Registry   { return nil }
+func (s stubPool) Executor() tools.Executor { return nil }
+func (s stubPool) Skills() *skills.Library  { return nil }
+func (s stubPool) CompleteWithTools(label string, task pool.Task, system, user string, tools []map[string]any) (models.ModelRef, string, error) {
+	return s.Complete(label, task, system, user)
+}
 
 func findRepoRoot(t *testing.T) string {
 	t.Helper()

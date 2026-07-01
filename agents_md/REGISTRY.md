@@ -2,7 +2,18 @@
 
 Curated markdown agent library: **213 agents** (196 vulnerability specialists + 17 meta-agents).
 
-Each agent is a self-contained playbook with `## User Prompt` (methodology) and `## System Prompt` (strict anti-false-positive rules). The orchestrator selects and ranks them per target using recon signals and reinforcement-learning weights.
+Each agent is a self-contained playbook with `## User Prompt` (methodology) and `## System Prompt` (strict anti-false-positive rules). Optional metadata sections drive the toolloop:
+
+| Section | Purpose |
+|---------|---------|
+| `## Tools` | Allowlisted tools for this agent (e.g. `curl, sqlmap`) |
+| `## Skills` | Injected methodology blocks from `skills_md/` |
+| `## Output Schema` | JSON shape the agent must return |
+| `## Preconditions` | Recon signals used by orchestrator selection |
+
+High-impact agents (recon, infra scan, top vulns) include this metadata; others remain backward-compatible.
+
+The orchestrator selects and ranks them per target using recon signals and reinforcement-learning weights.
 
 ## Meta-agents (`agents_md/meta/`)
 

@@ -1,0 +1,29 @@
+name: nmap
+command: nmap
+args: ["-sV", "-sC", "-Pn"]
+enabled: true
+short_description: Network mapper and port scanner.
+description: |
+  nmap discovers hosts, open ports, services, and operating systems.
+  Use for host/port reconnaissance with authorized targets only.
+parameters:
+  - name: target
+    type: string
+    description: Hostname or IP to scan.
+    required: true
+    position: 0
+    format: positional
+  - name: ports
+    type: string
+    description: Port range, e.g. 80,443 or 1-1000.
+    required: false
+    flag: -p
+    format: combined
+  - name: additional_args
+    type: string
+    description: Extra nmap arguments (e.g. -T4).
+    required: false
+    format: positional
+timeout: 10m
+install_hint: apt install nmap | brew install nmap | yum install nmap
+tags: [network, portscan, recon]

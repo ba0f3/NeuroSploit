@@ -1,0 +1,21 @@
+name: whois
+command: whois
+enabled: true
+short_description: WHOIS domain registrar lookup.
+description: |
+  whois queries domain registration and ownership information.
+parameters:
+  - name: target
+    type: string
+    description: Domain or IP.
+    required: true
+    position: 0
+    format: positional
+  - name: additional_args
+    type: string
+    description: Extra whois arguments.
+    required: false
+    format: positional
+timeout: 30s
+install_hint: apt install whois | brew install whois
+tags: [network, recon]

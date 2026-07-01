@@ -132,6 +132,118 @@ func logCLI(verbose bool, cmd *exec.Cmd) {
 	_, _ = fmt.Fprintf(os.Stderr, "cli> %s\n", line)
 }
 
+// ExtractChatContent returns assistant message text from a raw chat completion JSON
+// response, or the input unchanged when it is not API JSON.
+func ExtractChatContent(raw string) string {
+	raw = strings.TrimSpace(raw)
+	var v map[string]any
+	if err := json.Unmarshal([]byte(raw), &v); err != nil {
+		return raw
+	}
+	choices, ok := v["choices"].([]any)
+	if !ok || len(choices) == 0 {
+		return raw
+	}
+	choice, ok := choices[0].(map[string]any)
+	if !ok {
+		return raw
+	}
+	message, ok := choice["message"].(map[string]any)
+	if !ok {
+		return raw
+	}
+	content, ok := message["content"].(string)
+	if !ok || strings.TrimSpace(content) == "" {
+		return raw
+	}
+	return content
+}
+
+// Chat performs one HTTP chat completion.
+
+// ChatWithTools performs an HTTP chat completion with tool definitions and returns
+// the raw API response so that callers can parse native tool_calls.
+func (c ChatClient) ChatWithTools(ctx context.Context, m ModelRef, system, user string, tools []map[string]any) (string, error) {
+	p := ProviderFor(m.Provider)
+	if p == nil {
+		return "", fmt.Errorf("unknown provider '%s'", m.Provider)
+	}
+	key := resolveKey(p)
+	if key == "" && p.Key != "ollama" && p.Key != "litellm" {
+		hint := p.EnvKey
+		if p.Key == "gemini" {
+			hint = fmt.Sprintf("%s (or GOOGLE_API_KEY)", p.EnvKey)
+		}
+		return "", fmt.Errorf("no API key (%s) for provider '%s'", hint, p.Key)
+	}
+	azure := p.Key == "azure"
+	var url string
+	if azure {
+		endpoint := os.Getenv("AZURE_OPENAI_ENDPOINT")
+		if endpoint == "" {
+			return "", fmt.Errorf("set AZURE_OPENAI_ENDPOINT for the azure provider")
+		}
+		ver := os.Getenv("AZURE_OPENAI_API_VERSION")
+		if ver == "" {
+			ver = "2024-10-21"
+		}
+		url = fmt.Sprintf("%s/openai/deployments/%s/chat/completions?api-version=%s",
+			strings.TrimRight(endpoint, "/"), m.Model, ver)
+	} else {
+		base := p.BaseURL
+		switch p.Key {
+		case "litellm":
+			if b := os.Getenv("LITELLM_BASE_URL"); b != "" {
+				base = b
+			}
+		case "ollama":
+			if b := os.Getenv("OLLAMA_BASE_URL"); b != "" {
+				base = b
+			}
+		}
+		url = fmt.Sprintf("%s/chat/completions", strings.TrimRight(base, "/"))
+	}
+	body := map[string]any{
+		"model":       m.Model,
+		"max_tokens":  4096,
+		"temperature": 0.2,
+		"messages": []map[string]string{
+			{"role": "system", "content": system},
+			{"role": "user", "content": user},
+		},
+	}
+	if len(tools) > 0 {
+		body["tools"] = tools
+		body["tool_choice"] = "auto"
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if key != "" {
+		if azure {
+			req.Header.Set("api-key", key)
+		} else {
+			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", key))
+		}
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	text, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("%s returned %d: %s", p.Key, resp.StatusCode, truncate(string(text), 200))
+	}
+	return string(text), nil
+}
+
 // Chat performs one HTTP chat completion.
 func (c ChatClient) Chat(ctx context.Context, m ModelRef, system, user string) (string, error) {
 	p := ProviderFor(m.Provider)

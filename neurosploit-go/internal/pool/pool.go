@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/models"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/skills"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/tools"
 )
 
 // Task describes the kind of work the model router should optimize for.
@@ -25,6 +27,7 @@ const (
 // ChatClient is the subset of models.ChatClient used by the pool (testable interface).
 type ChatClient interface {
 	Chat(ctx context.Context, m models.ModelRef, system, user string) (string, error)
+	ChatWithTools(ctx context.Context, m models.ModelRef, system, user string, tools []map[string]any) (string, error)
 	ChatCLI(ctx context.Context, label, provider, model, system, user, mcpConfig string, progress chan<- string) (string, error)
 }
 
@@ -36,6 +39,10 @@ type ModelPool struct {
 	Subscription bool
 	MCPConfig    string
 	Progress     chan<- string
+
+	ToolRegistry *tools.Registry
+	ToolExecutor tools.Executor
+	SkillLibrary *skills.Library
 
 	cancel   atomic.Bool
 	soft     atomic.Bool
@@ -202,9 +209,61 @@ func (p *ModelPool) Complete(label string, task Task, system, user string) (mode
 }
 
 // ONE is an alias for One to satisfy the plan interface naming.
+
+// CompleteWithTools routes a prompt with tool definitions to the best model and returns the raw response.
+func (p *ModelPool) CompleteWithTools(label string, task Task, system, user string, tools []map[string]any) (models.ModelRef, string, error) {
+	for {
+		if p.cancel.Load() {
+			return models.ModelRef{}, "", fmt.Errorf("cancelled")
+		}
+		order := p.Route(task)
+		var exhausted bool
+		var lastErr error
+		for _, m := range order {
+			if p.cancel.Load() {
+				return models.ModelRef{}, "", fmt.Errorf("cancelled")
+			}
+			if task == TaskExploit && p.soft.Load() {
+				return models.ModelRef{}, "", fmt.Errorf("soft-stopped")
+			}
+			text, err := p.oneWithTools(label, m, system, user, tools)
+			if err == nil {
+				return m, text, nil
+			}
+			if IsExhaustion(err) {
+				exhausted = true
+			}
+			lastErr = err
+		}
+		if exhausted && !p.cancel.Load() {
+			p.Pause()
+			p.WaitPaused()
+			continue
+		}
+		return models.ModelRef{}, "", lastErr
+	}
+}
+
+func (p *ModelPool) oneWithTools(label string, m models.ModelRef, system, user string, tools []map[string]any) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	if p.Subscription {
+		return p.Client.ChatCLI(ctx, label, m.Provider, m.Model, system, user, p.MCPConfig, p.Progress)
+	}
+	return p.Client.ChatWithTools(ctx, m, system, user, tools)
+}
 func (p *ModelPool) ONE(label string, m models.ModelRef, system, user string) (string, error) {
 	return p.One(label, m, system, user)
 }
+
+// Tools returns the configured tool registry.
+func (p *ModelPool) Tools() *tools.Registry { return p.ToolRegistry }
+
+// Executor returns the configured tool executor.
+func (p *ModelPool) Executor() tools.Executor { return p.ToolExecutor }
+
+// Skills returns the configured skill library.
+func (p *ModelPool) Skills() *skills.Library { return p.SkillLibrary }
 
 // Route returns candidates reordered for the task.
 func (p *ModelPool) Route(task Task) []models.ModelRef {

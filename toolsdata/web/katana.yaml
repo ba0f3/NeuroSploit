@@ -1,0 +1,35 @@
+name: katana
+command: katana
+enabled: true
+short_description: Fast web crawler from ProjectDiscovery.
+description: |
+  katana crawls websites and discovers endpoints, parameters, and JavaScript files.
+parameters:
+  - name: target
+    type: string
+    description: URL to crawl.
+    required: true
+    flag: -u
+    format: flag
+  - name: depth
+    type: int
+    description: Crawl depth.
+    required: false
+    default: 3
+    flag: -d
+    format: combined
+  - name: js_crawl
+    type: bool
+    description: Crawl JavaScript files.
+    required: false
+    default: true
+    flag: -jc
+    format: flag
+  - name: additional_args
+    type: string
+    description: Extra katana arguments.
+    required: false
+    format: positional
+timeout: 5m
+install_hint: go install github.com/projectdiscovery/katana/cmd/katana@latest
+tags: [web, crawler, recon]

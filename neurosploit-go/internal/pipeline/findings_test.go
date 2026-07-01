@@ -87,3 +87,27 @@ func TestExtractFindingsFencedJSON(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+func TestExtractFindingsDropsNegativeProbes(t *testing.T) {
+	text := `[
+		{"title":"Test for /backup.zip exposure","severity":"info","cwe":"CWE-530","endpoint":"https://example.com/backup.zip","evidence":"Run via curl; no exposed backup file with credentials found.","impact":"No evidence of exposed backup."},
+		{"title":"Backup File Probing: Baseline","severity":"info","evidence":"Baseline established for subsequent probing.","impact":"No action required for baseline."},
+		{"title":"Backup Exposed at /backup.zip","severity":"high","cwe":"CWE-530","endpoint":"https://example.com/backup.zip","evidence":"HTTP/1.1 200 OK\nContent-Type: application/zip\nPK..","impact":"Database dump with credentials"}
+	]`
+	got := extractFindings(text, "backup_file_exposure")
+	if len(got) != 1 {
+		t.Fatalf("expected 1 real finding, got %d: %+v", len(got), got)
+	}
+	if got[0].Title != "Backup Exposed at /backup.zip" {
+		t.Fatalf("got %+v", got[0])
+	}
+}
+
+func TestIsNegativeFinding(t *testing.T) {
+	if !isNegativeFinding(types.Finding{Title: "Test for /x", Evidence: "curl ok"}) {
+		t.Fatal("Test for prefix should be negative")
+	}
+	if isNegativeFinding(types.Finding{Title: "SQLi", Evidence: "HTTP/1.1 200 OK error in syntax"}) {
+		t.Fatal("real finding should not be negative")
+	}
+}

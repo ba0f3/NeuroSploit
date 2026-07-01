@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/agents"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
 )
 
@@ -24,11 +25,24 @@ const depthDoctrine = "DEPTH (exploit, don't just expose):\n" +
 
 const chainSys = "You are an exploit-chaining specialist. Given already-CONFIRMED findings, chain them into deeper impact — e.g. SSRF→cloud metadata creds, SQLi→DB dump→credential reuse, IDOR→account takeover, arbitrary file read→secrets→RCE, auth bypass→admin. Use your tools to actually carry the chain forward and PROVE the escalated impact. Report ONLY NEW findings beyond the inputs."
 
+const evidenceDoctrine = "EVIDENCE: every finding MUST include a concrete `evidence` field — raw HTTP request/response excerpt, command stdout, or tool receipt. Claims without observable proof are leads, not findings.\n\n"
+
+const severityDoctrine = "SEVERITY: Critical/High only when impact is DEMONSTRATED (data exfil, RCE, auth bypass proven). Theoretical or unproven issues → Medium/Low/Info. Never inflate.\n\n"
+
+const outputSchemaDoctrine = "OUTPUT: reply ONLY with a JSON array of findings (may be []). Each item: {id,title,severity,cwe,endpoint,payload,evidence,impact,remediation,confidence}. No prose outside the array.\n\n"
+
 const selectSys = "You are a penetration-test orchestrator. Given recon of a target and a catalog of specialist agents, choose ONLY the agents whose preconditions clearly match the target's attack surface. Be selective. Reply with a JSON array of agent names (strings) drawn exactly from the catalog. No prose."
 
 const hostReconSys = "You are an infrastructure recon specialist on an AUTHORIZED engagement against a HOST/IP. Actively scan with rustscan/nmap (and netexec/smbclient where relevant) to map open ports, services, versions and auth surfaces. Use any provided SSH/Windows credentials to enumerate from inside. Do not ask permission; proceed. Reply with a compact JSON object (host, os, ports, services, auth, ad). No prose."
 
 const hostTooling = "TOOLING (best on Kali): nmap/rustscan (ports), netexec/crackmapexec + smbclient (SMB/AD), ssh/sshpass + linpeas (Linux), evil-winrm + winPEAS + impacket (Windows), bloodhound-python/SharpHound (AD), hashcat (offline cracking). Use only supplied credentials; never brute force or run destructive/DoS actions.\n\n"
+
+func agentOutputSchema(ag agents.Agent) string {
+	if ag.OutputSchema == "" {
+		return outputSchemaDoctrine
+	}
+	return "OUTPUT SCHEMA (follow exactly):\n" + ag.OutputSchema + "\n\n"
+}
 
 func operatorDirectives(cfg types.RunConfig) string {
 	var s strings.Builder

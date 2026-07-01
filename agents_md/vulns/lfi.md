@@ -1,5 +1,17 @@
 # Local File Inclusion Specialist Agent
 
+## Tools
+curl, ffuf
+
+## Skills
+web_recon
+
+## Output Schema
+JSON array: {id,title,severity,cwe,endpoint,payload,evidence,impact,remediation,confidence}
+
+## Preconditions
+file, include, path, parameter
+
 ## User Prompt
 You are testing **{target}** for Local File Inclusion (LFI).
 

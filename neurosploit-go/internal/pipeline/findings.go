@@ -58,7 +58,7 @@ func extractFindings(text, agent string) []types.Finding {
 			}
 			id = fmt.Sprintf("%s-%s", agent, string(runes))
 		}
-		out = append(out, types.Finding{
+		f := types.Finding{
 			ID:          id,
 			Agent:       agent,
 			Title:       title,
@@ -72,9 +72,53 @@ func extractFindings(text, agent string) []types.Finding {
 			Remediation: fieldStr(o, "remediation"),
 			Confidence:  fieldConf(o["confidence"]),
 			ChainsFrom:  []string{},
-		})
+		}
+		if isNegativeFinding(f) {
+			continue
+		}
+		out = append(out, f)
 	}
 	return out
+}
+
+// isNegativeFinding drops probe logs and confirmed-absence reports masquerading as findings.
+func isNegativeFinding(f types.Finding) bool {
+	title := strings.ToLower(strings.TrimSpace(f.Title))
+	evidence := strings.ToLower(f.Evidence)
+	impact := strings.ToLower(f.Impact)
+	hay := title + " " + evidence + " " + impact
+
+	if strings.HasPrefix(title, "test for ") {
+		return true
+	}
+	for _, p := range []string{
+		"no exposed",
+		"not exposed",
+		"no backup file",
+		"no evidence of exposed",
+		"no evidence of ",
+		"not a finding",
+		"not detected",
+		"no action required",
+		"baseline established",
+		"for subsequent",
+		"recon only",
+		"reconnaissance only",
+		"nothing to confirm",
+		"returns 404",
+		"returned 404",
+		"404 not found",
+		"no graphql endpoint",
+		"endpoint does not exist",
+		"confirmed absent",
+		"negative test",
+		"probe result: not",
+	} {
+		if strings.Contains(hay, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func extractJSONSlice(text string) string {

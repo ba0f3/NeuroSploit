@@ -1,0 +1,28 @@
+name: ffuf
+command: ffuf
+enabled: true
+short_description: Fast web fuzzer.
+description: |
+  ffuf fuzzes web directories, files, parameters, and virtual hosts.
+parameters:
+  - name: target
+    type: string
+    description: "Target URL with FUZZ keyword, e.g. https://example.com/FUZZ."
+    required: true
+    flag: -u
+    format: flag
+  - name: wordlist
+    type: string
+    description: Wordlist path.
+    required: false
+    default: /usr/share/wordlists/dirb/common.txt
+    flag: -w
+    format: flag
+  - name: additional_args
+    type: string
+    description: Extra ffuf arguments.
+    required: false
+    format: positional
+timeout: 5m
+install_hint: go install github.com/ffuf/ffuf/v2@latest
+tags: [web, fuzzer, brute]

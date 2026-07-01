@@ -1,0 +1,21 @@
+name: subfinder
+command: subfinder
+enabled: true
+short_description: Passive subdomain discovery.
+description: |
+  subfinder discovers subdomains using passive sources.
+parameters:
+  - name: domain
+    type: string
+    description: Domain to enumerate.
+    required: true
+    flag: -d
+    format: flag
+  - name: additional_args
+    type: string
+    description: Extra subfinder arguments.
+    required: false
+    format: positional
+timeout: 5m
+install_hint: go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+tags: [network, subdomain, recon]

@@ -28,6 +28,10 @@ func (f fakeClient) ChatCLI(ctx context.Context, label, provider, model, system,
 	return f.Chat(ctx, models.ModelRef{Provider: provider, Model: model}, system, user)
 }
 
+func (f fakeClient) ChatWithTools(ctx context.Context, m models.ModelRef, system, user string, tools []map[string]any) (string, error) {
+	return f.Chat(ctx, m, system, user)
+}
+
 func TestSetProgress(t *testing.T) {
 	p := New([]models.ModelRef{models.ModelRefParse("anthropic:claude-opus-4-8")}, 1)
 	ch := make(chan string, 1)

@@ -1,0 +1,21 @@
+name: dalfox
+command: dalfox
+enabled: true
+short_description: XSS scanning and parameter analysis.
+description: |
+  dalfox finds XSS vulnerabilities and analyzes reflected parameters.
+parameters:
+  - name: target
+    type: string
+    description: Target URL.
+    required: true
+    flag: -u
+    format: flag
+  - name: additional_args
+    type: string
+    description: Extra dalfox arguments.
+    required: false
+    format: positional
+timeout: 10m
+install_hint: go install github.com/hahwul/dalfox/v2@latest
+tags: [web, xss, exploit]

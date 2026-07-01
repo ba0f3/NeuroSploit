@@ -1,0 +1,29 @@
+name: OWASP Top 10
+description: Focused black-box assessment of a web application against the OWASP Top 10.
+tags: [web, owasp, blackbox]
+variables:
+  - name: target
+    type: string
+    required: true
+phases:
+  - name: recon
+    tools: [httpx, whatweb, katana]
+    agents: [tech_fingerprint]
+    skills: [web_recon]
+    post_analysis: |
+      Extract the technology stack, live endpoints, parameters, and any version banners.
+      Map identified versions to CVEs for downstream exploitation.
+  - name: vulnerabilities
+    condition: "recon"
+    tools: [nuclei, dalfox]
+    agents: [sqli_error, sqli_blind, sqli_union, xss_reflected, xss_stored, xss_dom, command_injection, lfi, ssrf, idor, open_redirect, auth_bypass, csrf, ssti, file_upload, xxe, security_headers, cors_misconfig]
+    skills: [sqli_testing, xss_testing, auth_testing, file_upload_testing]
+    post_analysis: |
+      Confirm every reported issue with a raw tool receipt or request/response evidence.
+      Drop any finding that cannot be reproduced.
+  - name: chain
+    condition: "findings_count > 0"
+    agents: [chain_upload_lfi_rce_lpe]
+    skills: [cve_scanning]
+    post_analysis: |
+      Chain confirmed findings into deeper impact. Stop if a stage cannot be proven.

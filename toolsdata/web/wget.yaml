@@ -1,0 +1,21 @@
+name: wget
+command: wget
+enabled: true
+short_description: Retrieve files from the web.
+description: |
+  wget downloads files and is useful for fetching archives, pages, or mirrors.
+parameters:
+  - name: url
+    type: string
+    description: Target URL.
+    required: true
+    position: 0
+    format: positional
+  - name: additional_args
+    type: string
+    description: Extra wget arguments.
+    required: false
+    format: positional
+timeout: 30s
+install_hint: apt install wget | brew install wget
+tags: [web, http, manual]

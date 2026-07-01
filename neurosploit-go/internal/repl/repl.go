@@ -16,6 +16,8 @@ import (
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/models"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pipeline"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pool"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/skills"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/tools"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
 	"github.com/peterh/liner"
 )
@@ -448,3 +450,10 @@ func (offlineStub) Vote(system, user string, n int, skip string) (int, int) {
 }
 
 func (offlineStub) StopExploiting() bool { return false }
+
+func (offlineStub) Tools() *tools.Registry   { return nil }
+func (offlineStub) Executor() tools.Executor { return nil }
+func (offlineStub) Skills() *skills.Library  { return nil }
+func (offlineStub) CompleteWithTools(label string, task pool.Task, system, user string, tools []map[string]any) (models.ModelRef, string, error) {
+	return offlineStub{}.Complete(label, task, system, user)
+}

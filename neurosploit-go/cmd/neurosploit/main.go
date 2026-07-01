@@ -14,6 +14,8 @@ import (
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pipeline"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pool"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/repl"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/skills"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/tools"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/tui"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
 	"github.com/spf13/cobra"
@@ -46,9 +48,10 @@ After recon it selects agents, runs them in parallel, then validates findings by
 func runCmd() *cobra.Command {
 	var modelsFlag []string
 	var maxAgents, voteN int
-	var offline, subscription, mcp bool
-	var credsPath, focus string
+	var offline, subscription, mcp, autoTools, interactive, autoSkills bool
+	var credsPath, focus, playbook, skillsFlag, disableTools string
 	var verbose bool
+	var toolTimeout int
 
 	cmd := &cobra.Command{
 		Use:   "run <url>",
@@ -64,6 +67,17 @@ func runCmd() *cobra.Command {
 			cfg.VoteN = voteN
 			cfg.Subscription = subscription
 			cfg.Verbose = verbose
+			cfg.AutoTools = autoTools
+			cfg.Interactive = interactive
+			cfg.AutoSkills = autoSkills
+			cfg.Playbook = playbook
+			cfg.ToolTimeout = toolTimeout
+			if skillsFlag != "" {
+				cfg.Skills = strings.Split(skillsFlag, ",")
+			}
+			if disableTools != "" {
+				cfg.DisableTools = strings.Split(disableTools, ",")
+			}
 			if focus != "" {
 				cfg.Instructions = &focus
 			}
@@ -85,6 +99,13 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&credsPath, "creds", "", "Path to creds.yaml")
 	cmd.Flags().StringVar(&focus, "focus", "", "Focus instructions")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+	cmd.Flags().BoolVar(&autoTools, "auto-tools", true, "Automatically run tools from agent recipes (recon always uses tools when available)")
+	cmd.Flags().BoolVar(&interactive, "interactive", false, "Prompt before executing each tool command")
+	cmd.Flags().BoolVar(&autoSkills, "auto-skills", false, "Inject relevant skills into agent prompts")
+	cmd.Flags().StringVar(&playbook, "playbook", "", "Run a named playbook instead of the default pipeline")
+	cmd.Flags().StringVar(&skillsFlag, "skills", "", "Comma-separated skills to inject")
+	cmd.Flags().StringVar(&disableTools, "disable-tools", "", "Comma-separated tools to disable")
+	cmd.Flags().IntVar(&toolTimeout, "tool-timeout", 0, "Tool timeout in minutes (0 = recipe default)")
 	return cmd
 }
 
@@ -295,3 +316,10 @@ func (offlineStubPool) Vote(system, user string, n int, skip string) (int, int) 
 }
 
 func (offlineStubPool) StopExploiting() bool { return false }
+
+func (offlineStubPool) Tools() *tools.Registry   { return nil }
+func (offlineStubPool) Executor() tools.Executor { return nil }
+func (offlineStubPool) Skills() *skills.Library  { return nil }
+func (offlineStubPool) CompleteWithTools(label string, task pool.Task, system, user string, tools []map[string]any) (models.ModelRef, string, error) {
+	return offlineStubPool{}.Complete(label, task, system, user)
+}

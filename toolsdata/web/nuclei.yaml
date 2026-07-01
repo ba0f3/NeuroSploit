@@ -1,0 +1,34 @@
+name: nuclei
+command: nuclei
+enabled: true
+short_description: Vulnerability scanner using YAML templates.
+description: |
+  nuclei scans for vulnerabilities, misconfigurations, and exposures using templates.
+parameters:
+  - name: target
+    type: string
+    description: URL or host to scan.
+    required: true
+    flag: -u
+    format: flag
+  - name: templates
+    type: string
+    description: Template directory or path.
+    required: false
+    flag: -t
+    format: flag
+  - name: severity
+    type: string
+    description: Severity filter, e.g. critical,high,medium.
+    required: false
+    default: critical,high,medium
+    flag: -s
+    format: combined
+  - name: additional_args
+    type: string
+    description: Extra nuclei arguments.
+    required: false
+    format: positional
+timeout: 15m
+install_hint: go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && nuclei -update-templates
+tags: [web, vulnscan, exploit]

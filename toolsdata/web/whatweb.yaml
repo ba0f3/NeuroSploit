@@ -1,0 +1,21 @@
+name: whatweb
+command: whatweb
+enabled: true
+short_description: Web technology fingerprinting.
+description: |
+  whatweb identifies CMS, blogs, analytics packages, JavaScript libraries, and more.
+parameters:
+  - name: target
+    type: string
+    description: URL to fingerprint.
+    required: true
+    position: 0
+    format: positional
+  - name: additional_args
+    type: string
+    description: Extra whatweb arguments.
+    required: false
+    format: positional
+timeout: 2m
+install_hint: apt install whatweb | brew install whatweb
+tags: [web, fingerprint, recon]

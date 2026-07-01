@@ -1,0 +1,28 @@
+name: sqlmap
+command: sqlmap
+enabled: true
+short_description: Automatic SQL injection scanner.
+description: |
+  sqlmap detects and exploits SQL injection flaws.
+parameters:
+  - name: target
+    type: string
+    description: Target URL with parameter.
+    required: true
+    flag: -u
+    format: flag
+  - name: batch
+    type: bool
+    description: Run in non-interactive mode.
+    required: false
+    default: true
+    flag: --batch
+    format: flag
+  - name: additional_args
+    type: string
+    description: Extra sqlmap arguments.
+    required: false
+    format: positional
+timeout: 15m
+install_hint: pip install sqlmap
+tags: [web, sql, exploit]

@@ -11,7 +11,7 @@ import (
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
 )
 
-func persist(cfg types.RunConfig, recon, transcript string, findings []types.Finding) []string {
+func persist(cfg types.RunConfig, recon, transcript, toolLog string, findings []types.Finding) []string {
 	if cfg.Workdir == nil {
 		return nil
 	}
@@ -28,6 +28,9 @@ func persist(cfg types.RunConfig, recon, transcript string, findings []types.Fin
 	}
 	put("recon.json", recon)
 	put("recon.md", fmt.Sprintf("# Recon — %s\n\n```json\n%s\n```\n", cfg.Target, recon))
+	if toolLog != "" {
+		put("recon_tools.md", fmt.Sprintf("# Tool log — %s\n\n%s", cfg.Target, toolLog))
+	}
 	if transcript != "" {
 		put("exploitation.md", fmt.Sprintf("# Agent transcript — %s\n\n%s", cfg.Target, transcript))
 	}

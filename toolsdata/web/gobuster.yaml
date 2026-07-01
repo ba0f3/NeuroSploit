@@ -1,0 +1,35 @@
+name: gobuster
+command: gobuster
+enabled: true
+short_description: Directory/file and DNS brute-forcer.
+description: |
+  gobuster discovers directories, files, subdomains, and virtual hosts.
+parameters:
+  - name: mode
+    type: string
+    description: "gobuster mode: dir, dns, vhost, fuzz, s3, gcs, tftp."
+    required: true
+    default: dir
+    position: 0
+    format: positional
+  - name: target
+    type: string
+    description: Target URL.
+    required: true
+    flag: -u
+    format: flag
+  - name: wordlist
+    type: string
+    description: Wordlist path.
+    required: false
+    default: /usr/share/wordlists/dirb/common.txt
+    flag: -w
+    format: flag
+  - name: additional_args
+    type: string
+    description: Extra gobuster arguments.
+    required: false
+    format: positional
+timeout: 5m
+install_hint: go install github.com/OJ/gobuster/v3@latest
+tags: [web, fuzzer, brute]

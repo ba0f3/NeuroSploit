@@ -95,3 +95,50 @@ func TestLoadLibrary(t *testing.T) {
 		t.Errorf("Total() = %d, want %d", got, wantCount)
 	}
 }
+
+func TestParseAgentMetadata(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(dir, "agents_md", "vulns"), 0755)
+	content := `# Test Agent
+
+## System Prompt
+You are a test agent.
+
+## Tools
+- nmap
+- nuclei
+- curl
+
+## Skills
+- web_recon
+- cve_scanning
+
+## Output Schema
+{ "title": "string", "severity": "string" }
+
+## Preconditions
+- Must have a URL
+- Must have a valid session
+
+## User Prompt
+Run tests.
+`
+	_ = os.WriteFile(filepath.Join(dir, "agents_md", "vulns", "test_agent.md"), []byte(content), 0644)
+	lib := agents.Load(dir)
+	if len(lib.Vulns) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(lib.Vulns))
+	}
+	a := lib.Vulns[0]
+	if len(a.Tools) != 3 || a.Tools[0] != "nmap" {
+		t.Fatalf("tools = %v", a.Tools)
+	}
+	if len(a.Skills) != 2 || a.Skills[0] != "web_recon" {
+		t.Fatalf("skills = %v", a.Skills)
+	}
+	if a.OutputSchema == "" {
+		t.Fatal("expected output schema")
+	}
+	if len(a.Preconditions) != 2 {
+		t.Fatalf("preconditions = %v", a.Preconditions)
+	}
+}

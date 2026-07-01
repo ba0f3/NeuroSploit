@@ -1,0 +1,21 @@
+name: nikto
+command: nikto
+enabled: true
+short_description: Web server vulnerability scanner.
+description: |
+  nikto scans web servers for dangerous files, outdated software, and misconfigurations.
+parameters:
+  - name: target
+    type: string
+    description: Target URL.
+    required: true
+    flag: -h
+    format: flag
+  - name: additional_args
+    type: string
+    description: Extra nikto arguments.
+    required: false
+    format: positional
+timeout: 15m
+install_hint: apt install nikto | git clone https://github.com/sullo/nikto.git
+tags: [web, vulnscan, recon]

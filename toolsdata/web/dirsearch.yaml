@@ -1,0 +1,28 @@
+name: dirsearch
+command: dirsearch
+enabled: true
+short_description: Web path scanner.
+description: |
+  dirsearch brute-forces directories and files on web servers.
+parameters:
+  - name: target
+    type: string
+    description: Target URL.
+    required: true
+    flag: -u
+    format: flag
+  - name: wordlist
+    type: string
+    description: Wordlist path.
+    required: false
+    default: /usr/share/wordlists/dirb/common.txt
+    flag: -w
+    format: flag
+  - name: additional_args
+    type: string
+    description: Extra dirsearch arguments.
+    required: false
+    format: positional
+timeout: 5m
+install_hint: git clone https://github.com/maurosoria/dirsearch.git && cd dirsearch && pip install -e .
+tags: [web, fuzzer, brute]

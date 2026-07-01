@@ -1,0 +1,28 @@
+name: naabu
+command: naabu
+enabled: true
+short_description: Fast port scanner from ProjectDiscovery.
+description: |
+  naabu is a fast port scanner that discovers open ports on hosts.
+parameters:
+  - name: host
+    type: string
+    description: Target host or IP.
+    required: true
+    flag: -host
+    format: flag
+  - name: ports
+    type: string
+    description: Ports to scan.
+    required: false
+    default: "top-100"
+    flag: -p
+    format: combined
+  - name: additional_args
+    type: string
+    description: Extra naabu arguments.
+    required: false
+    format: positional
+timeout: 5m
+install_hint: go install github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
+tags: [network, portscan, recon]

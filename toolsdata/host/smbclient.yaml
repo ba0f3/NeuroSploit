@@ -1,0 +1,21 @@
+name: smbclient
+command: smbclient
+enabled: true
+short_description: SMB client for Windows file shares.
+description: |
+  smbclient lists and connects to SMB shares.
+parameters:
+  - name: target
+    type: string
+    description: UNC target like //host/share.
+    required: true
+    position: 0
+    format: positional
+  - name: additional_args
+    type: string
+    description: Extra smbclient arguments.
+    required: false
+    format: positional
+timeout: 30s
+install_hint: apt install smbclient | brew install samba
+tags: [host, windows, smb]
