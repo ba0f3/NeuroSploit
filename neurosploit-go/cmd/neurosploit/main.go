@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -41,7 +43,7 @@ After recon it selects agents, runs them in parallel, then validates findings by
 			return repl.Run(findBase())
 		},
 	}
-	root.AddCommand(runCmd(), whiteboxCmd(), greyboxCmd(), hostCmd(), tuiCmd(), agentsCmd(), modelsCmd())
+	root.AddCommand(runCmd(), whiteboxCmd(), greyboxCmd(), hostCmd(), tuiCmd(), toolsCmd(), agentsCmd(), modelsCmd())
 	return root
 }
 
@@ -289,6 +291,74 @@ func tuiCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable MCP")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	return cmd
+}
+
+func toolsCmd() *cobra.Command {
+	var base string
+	var extras, cli bool
+
+	cmd := &cobra.Command{
+		Use:   "tools",
+		Short: "Check pentest tool binaries on PATH",
+		Long: `Verify that external tool binaries from toolsdata/ recipes are installed and on PATH.
+Use before a live engagement to see what will degrade gracefully when missing.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if base == "" {
+				base = findBase()
+			}
+			reg, err := tools.Load(base)
+			if err != nil {
+				return err
+			}
+			missing := 0
+			missing += tools.FormatCheckReport(os.Stdout, fmt.Sprintf("Tool recipes (%d)", len(reg.List())), tools.CheckBinaries(reg))
+			if extras {
+				missing += tools.FormatCheckReport(os.Stdout, "Doctrine helpers", tools.CheckExtraBinaries(tools.DoctrineExtras))
+			}
+			if cli {
+				missing += formatCLIBackends(os.Stdout)
+			}
+			if missing > 0 {
+				return fmt.Errorf("%d binary(ies) missing on PATH", missing)
+			}
+			fmt.Println("All checked binaries found on PATH.")
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&base, "base", "", "Repository root (default: auto-detect agents_md/)")
+	cmd.Flags().BoolVar(&extras, "extras", true, "Also check doctrine helpers (nc, bash)")
+	cmd.Flags().BoolVar(&cli, "cli", false, "Also check subscription CLI backends and npx (MCP)")
+	return cmd
+}
+
+func formatCLIBackends(w io.Writer) int {
+	type entry struct {
+		label   string
+		command string
+		hint    string
+	}
+	entries := []entry{
+		{"claude", models.CLIBinaryFor("anthropic"), "Anthropic Claude Code CLI"},
+		{"codex", models.CLIBinaryFor("openai"), "OpenAI Codex CLI"},
+		{"grok", models.CLIBinaryFor("xai"), "xAI Grok CLI"},
+		{"gemini", models.CLIBinaryFor("gemini"), "Google Gemini CLI"},
+		{"cursor", models.CLIBinaryFor("cursor"), "Cursor Agent CLI"},
+		{"npx", "npx", "Node.js npx — Playwright MCP"},
+	}
+
+	var statuses []tools.BinaryStatus
+	for _, e := range entries {
+		path, ok := "", false
+		if e.command != "" {
+			if p, err := exec.LookPath(e.command); err == nil {
+				path, ok = p, true
+			}
+		}
+		statuses = append(statuses, tools.BinaryStatus{
+			Tool: e.label, Command: e.command, Found: ok, Path: path, Hint: e.hint,
+		})
+	}
+	return tools.FormatCheckReport(w, "Subscription / MCP CLIs", statuses)
 }
 
 func agentsCmd() *cobra.Command {

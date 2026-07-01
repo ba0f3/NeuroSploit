@@ -66,6 +66,17 @@ func TestAgentsCmd(t *testing.T) {
 	}
 }
 
+func TestToolsCmd(t *testing.T) {
+	base := findBase()
+	if _, err := os.Stat(filepath.Join(base, "toolsdata")); err != nil {
+		t.Skip("toolsdata not found")
+	}
+	out, _ := execute(t, rootCmd(), "tools", "--base", base, "--extras=false")
+	if !strings.Contains(out, "Tool recipes") {
+		t.Errorf("tools output missing header: %q", out)
+	}
+}
+
 func TestOfflineRun(t *testing.T) {
 	base := findBase()
 	if _, err := os.Stat(filepath.Join(base, "agents_md")); err != nil {
