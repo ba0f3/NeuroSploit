@@ -62,6 +62,7 @@ func BuildPool(cfg types.RunConfig, mcp bool, workdir, base string) *pool.ModelP
 	if models.UsesCursorCLI(refs) {
 		client.CursorWorkspace = base
 	}
+	client.CLIToolLog = &models.CLIToolLogger{Dir: filepath.Join(workdir, "tools")}
 	p.Client = client
 	p.CLITimeout = pool.ResolveCLITimeout(cfg)
 	return p

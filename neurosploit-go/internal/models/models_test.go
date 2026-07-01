@@ -217,7 +217,7 @@ func TestConsumeCLIStream(t *testing.T) {
 	emit := func(s string) { lines = append(lines, s) }
 	in := strings.NewReader(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"curl example.com"}}]}}
 {"type":"result","result":"done","is_error":false}`)
-	result, hadErr := consumeCLIStream(in, emit)
+	result, hadErr := consumeCLIStream(in, emit, nil)
 	if result != "done" || hadErr != "" {
 		t.Fatalf("result=%q hadErr=%q", result, hadErr)
 	}

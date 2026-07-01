@@ -114,3 +114,4 @@ neurosploit-go/neurosploit
 neurosploit-go/internal/agents/agentsdata/**
 !neurosploit-go/internal/agents/agentsdata/.gitkeep
 .gortex
+.understand-anything

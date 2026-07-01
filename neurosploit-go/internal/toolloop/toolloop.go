@@ -78,6 +78,11 @@ func (l *Loop) Run(ctx context.Context, system, user string, toolList []tools.To
 	return history, observations, fmt.Errorf("toolloop reached max iterations (%d)", l.MaxIter)
 }
 
+// FormatToolProgress renders a single progress line for a tool result (includes log path when set).
+func FormatToolProgress(name string, result tools.ToolResult) string {
+	return formatToolProgress(name, result)
+}
+
 func formatToolProgress(name string, result tools.ToolResult) string {
 	var line string
 	if result.IsError {

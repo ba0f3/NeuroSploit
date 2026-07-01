@@ -306,9 +306,10 @@ func BuildCommand(tool Tool, args map[string]any) ([]string, error) {
 			continue
 		}
 		val := fmt.Sprintf("%v", v)
-		if p.Format == "positional" || p.Format == "" {
+		switch p.Format {
+		case "positional", "":
 			positional = append(positional, [2]int{p.Position, i})
-		} else if p.Format == "flag" || p.Format == "combined" {
+		case "flag", "combined":
 			if p.Type == "bool" || p.Type == "boolean" {
 				if b, ok := v.(bool); ok && b {
 					flags = append(flags, p.Flag)

@@ -168,6 +168,9 @@ func runWithToolLoop(ctx context.Context, p PoolCaller, label string, task pool.
 		_, text, err := p.Complete(label, task, system, user)
 		return text, nil, err
 	}
+	if poolUsesSubscriptionCLI(p) && label == "recon" {
+		return runSubscriptionRecon(ctx, p, label, task, system, user, toolList, progress)
+	}
 	caller := toolloop.CallerFunc(func(ctx context.Context, system, user string, toolsJSON []map[string]any) (string, error) {
 		_, text, err := p.CompleteWithTools(label, task, system, user, toolsJSON)
 		return text, err
@@ -180,6 +183,27 @@ func runWithToolLoop(ctx context.Context, p PoolCaller, label string, task pool.
 	}
 	sendProgress(progress, fmt.Sprintf("toolloop enabled for %s with tools: %s", label, toolNames(toolList)))
 	return loop.Run(ctx, system, user, toolList)
+}
+
+func poolUsesSubscriptionCLI(p PoolCaller) bool {
+	if mp, ok := p.(*pool.ModelPool); ok {
+		return mp.UsesSubscriptionCLI()
+	}
+	return false
+}
+
+// runSubscriptionRecon runs registry recon tools locally (logged), then asks the CLI model to synthesize JSON.
+func runSubscriptionRecon(ctx context.Context, p PoolCaller, label string, task pool.Task, system, user string, toolList []tools.Tool, progress chan<- string) (string, []toolloop.Observation, error) {
+	target := targetFromPrompt(user)
+	if target == "" {
+		target = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(user, "Target:"), " "))
+	}
+	sendProgress(progress, fmt.Sprintf("subscription recon: running registry tools for %s (%s)", label, toolNames(toolList)))
+	obs := runBootstrapTools(ctx, p.Executor(), target, toolList, progress)
+	history := user + bootstrapObservationsText(obs)
+	sendProgress(progress, fmt.Sprintf("subscription recon: synthesizing JSON from %d tool observation(s)", len(obs)))
+	_, text, err := p.Complete(label, task, system, history)
+	return text, obs, err
 }
 
 func toolNames(list []tools.Tool) string {

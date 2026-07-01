@@ -294,6 +294,27 @@ func (p *ModelPool) Tools() *tools.Registry { return p.ToolRegistry }
 // Executor returns the configured tool executor.
 func (p *ModelPool) Executor() tools.Executor { return p.ToolExecutor }
 
+// UsesSubscriptionCLI reports whether completions route through a local agentic CLI.
+func (p *ModelPool) UsesSubscriptionCLI() bool {
+	if p.Subscription {
+		return true
+	}
+	for _, m := range p.Candidates {
+		if models.ImpliesSubscription(m.Provider) {
+			return true
+		}
+	}
+	p.mu.Lock()
+	fallback := append([]models.ModelRef(nil), p.fallback...)
+	p.mu.Unlock()
+	for _, m := range fallback {
+		if models.ImpliesSubscription(m.Provider) {
+			return true
+		}
+	}
+	return false
+}
+
 // Skills returns the configured skill library.
 func (p *ModelPool) Skills() *skills.Library { return p.SkillLibrary }
 

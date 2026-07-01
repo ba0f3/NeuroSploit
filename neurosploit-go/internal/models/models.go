@@ -110,6 +110,7 @@ type ChatClient struct {
 	http            *http.Client
 	Verbose         bool
 	CursorWorkspace string // repo root for cursor --workspace (subscription login scope)
+	CLIToolLog      *CLIToolLogger
 }
 
 // NewChatClient creates a ChatClient.
@@ -350,10 +351,10 @@ func (c ChatClient) ChatCLI(ctx context.Context, label, provider, model, system,
 	}
 	prompt := system + "\n\n" + user
 	if bin == "claude" {
-		return chatClaudeStream(ctx, label, model, prompt, mcpConfig, c.Verbose, progress)
+		return chatClaudeStream(ctx, label, model, prompt, mcpConfig, c.Verbose, c.CLIToolLog, progress)
 	}
 	if bin == "agent" || bin == "cursor-agent" {
-		return chatCursorCLI(ctx, bin, label, model, prompt, mcpConfig, c.CursorWorkspace, c.Verbose, progress)
+		return chatCursorCLI(ctx, bin, label, model, prompt, mcpConfig, c.CursorWorkspace, c.Verbose, c.CLIToolLog, progress)
 	}
 	args := []string{bin}
 	switch bin {
@@ -408,7 +409,7 @@ func (c ChatClient) ChatCLI(ctx context.Context, label, provider, model, system,
 	return stdout, nil
 }
 
-func chatClaudeStream(ctx context.Context, label, model, prompt, mcpConfig string, verbose bool, progress chan<- string) (string, error) {
+func chatClaudeStream(ctx context.Context, label, model, prompt, mcpConfig string, verbose bool, cliLog *CLIToolLogger, progress chan<- string) (string, error) {
 	cmd := exec.CommandContext(ctx, "claude", "-p", "--model", model, "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions")
 	cmd.Env = append(os.Environ(), "IS_SANDBOX=1")
 	if mcpConfig != "" {
@@ -433,7 +434,7 @@ func chatClaudeStream(ctx context.Context, label, model, prompt, mcpConfig strin
 	readDone := make(chan struct{})
 	go func() {
 		defer close(readDone)
-		result, hadErr = consumeCLIStream(stdoutPipe, emit)
+		result, hadErr = consumeCLIStream(stdoutPipe, emit, cliLog)
 	}()
 
 	select {
@@ -473,7 +474,7 @@ func cliProgressEmitter(label string, progress chan<- string, verbose bool) func
 	}
 }
 
-func consumeCLIStream(r io.Reader, emit func(string)) (result, hadErr string) {
+func consumeCLIStream(r io.Reader, emit func(string), cliLog *CLIToolLogger) (result, hadErr string) {
 	sc := bufio.NewScanner(r)
 	// Cursor stream-json lines can be large (tool payloads).
 	buf := make([]byte, 0, 64*1024)
@@ -508,7 +509,11 @@ func consumeCLIStream(r io.Reader, emit func(string)) (result, hadErr string) {
 							if in, ok := b["input"].(map[string]interface{}); ok {
 								input = in
 							}
-							emit(toolEvent(name, input))
+							if path := cliLog.Record(name, input); path != "" {
+								emit(fmt.Sprintf("tool ok: %s (cli) → %s", name, path))
+							} else {
+								emit(toolEvent(name, input))
+							}
 						}
 					}
 				}
@@ -595,7 +600,7 @@ func toolEvent(name string, input map[string]interface{}) string {
 
 var cursorCLIMu sync.Mutex
 
-func chatCursorCLI(ctx context.Context, bin, label, model, prompt, mcpConfig, workspace string, verbose bool, progress chan<- string) (string, error) {
+func chatCursorCLI(ctx context.Context, bin, label, model, prompt, mcpConfig, workspace string, verbose bool, cliLog *CLIToolLogger, progress chan<- string) (string, error) {
 	cursorCLIMu.Lock()
 	defer cursorCLIMu.Unlock()
 
@@ -655,7 +660,7 @@ func chatCursorCLI(ctx context.Context, bin, label, model, prompt, mcpConfig, wo
 		var result, hadErr string
 		go func() {
 			defer close(readDone)
-			result, hadErr = consumeCLIStream(stdoutPipe, emit)
+			result, hadErr = consumeCLIStream(stdoutPipe, emit, cliLog)
 		}()
 		select {
 		case <-readDone:
