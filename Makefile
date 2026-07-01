@@ -40,15 +40,6 @@ fmt:
 vet:
 	cd $(GO_SOURCE_DIR) && $(GO) vet ./...
 
-run: build
-	cd $(GO_SOURCE_DIR) && ./$(BINARY) run $(ARGS)
-
-tui: build
-	cd $(GO_SOURCE_DIR) && ./$(BINARY) tui $(ARGS)
-
-repl: build
-	cd $(GO_SOURCE_DIR) && ./$(BINARY)
-
 check: fmt vet test build-release
 
 goreleaser-check:

@@ -25,7 +25,9 @@ var sanitizeRe = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 // SanitizeTarget makes a filesystem-safe slug from a URL or path.
 func SanitizeTarget(target string) string {
 	s := strings.TrimPrefix(strings.TrimPrefix(target, "https://"), "http://")
+	s = strings.TrimRight(s, "/")
 	s = sanitizeRe.ReplaceAllString(s, "_")
+	s = strings.Trim(s, "_")
 	if len(s) > 48 {
 		s = s[:48]
 	}
@@ -119,6 +121,7 @@ func Execute(ctx context.Context, base string, cfg types.RunConfig, mode string,
 		if cfg.Interactive {
 			executor = &interactiveExecutor{Executor: executor}
 		}
+		executor = &tools.FileLogExecutor{Dir: filepath.Join(workdir, "tools"), Inner: executor}
 	}
 	skillLib, _ := skills.Load(base)
 	if mp, ok := p.(*pool.ModelPool); ok {

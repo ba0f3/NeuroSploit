@@ -51,11 +51,13 @@ type ToolCall struct {
 type ToolResult struct {
 	Name     string
 	ID       string
+	Command  string
 	Output   string
 	Error    string
 	ExitCode int
 	Duration time.Duration
 	IsError  bool
+	LogPath  string
 }
 
 // Registry is a loaded collection of tool recipes.
@@ -240,6 +242,7 @@ func (e *DefaultExecutor) Execute(ctx context.Context, call ToolCall) (ToolResul
 		return res, nil
 	}
 	cmdStr := strings.Join(args, " ")
+	res.Command = cmdStr
 	if isDangerous(cmdStr) {
 		res.IsError = true
 		res.Error = "dangerous command rejected"

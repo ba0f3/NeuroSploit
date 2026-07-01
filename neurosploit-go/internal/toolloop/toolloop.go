@@ -64,7 +64,8 @@ func (l *Loop) Run(ctx context.Context, system, user string, toolList []tools.To
 		}
 		for _, call := range calls {
 			l.emit(fmt.Sprintf("tool run: %s", call.Name))
-			result, err := l.Executor.Execute(ctx, call)
+			callCtx := tools.ContextWithIteration(ctx, i+1)
+			result, err := l.Executor.Execute(callCtx, call)
 			if err != nil {
 				result = tools.ToolResult{IsError: true, Error: err.Error()}
 			}
@@ -78,18 +79,24 @@ func (l *Loop) Run(ctx context.Context, system, user string, toolList []tools.To
 }
 
 func formatToolProgress(name string, result tools.ToolResult) string {
+	var line string
 	if result.IsError {
 		msg := result.Error
 		if len(msg) > 120 {
 			msg = msg[:120] + "..."
 		}
-		return fmt.Sprintf("tool err: %s (%s)", name, msg)
+		line = fmt.Sprintf("tool err: %s (%s)", name, msg)
+	} else {
+		d := result.Duration
+		if d <= 0 {
+			d = time.Millisecond
+		}
+		line = fmt.Sprintf("tool ok: %s (%.1fs, exit %d, %d bytes)", name, d.Seconds(), result.ExitCode, len(result.Output))
 	}
-	d := result.Duration
-	if d <= 0 {
-		d = time.Millisecond
+	if result.LogPath != "" {
+		line += fmt.Sprintf(" → %s", result.LogPath)
 	}
-	return fmt.Sprintf("tool ok: %s (%.1fs, exit %d, %d bytes)", name, d.Seconds(), result.ExitCode, len(result.Output))
+	return line
 }
 
 func (l *Loop) emit(msg string) {
