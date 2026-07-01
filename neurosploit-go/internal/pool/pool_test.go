@@ -5,8 +5,10 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/models"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
 )
 
 type fakeClient struct {
@@ -124,5 +126,30 @@ func TestContinueAddsFallback(t *testing.T) {
 	order := pool.Route(TaskDefault)
 	if len(order) < 2 || order[0].Label() != "openai:gpt-5.5" {
 		t.Errorf("fallback not first in route: %v", order)
+	}
+}
+
+func TestCallTimeout(t *testing.T) {
+	p := New([]models.ModelRef{models.ModelRefParse("cursor:auto")}, 1)
+	if got := p.callTimeout(models.ModelRefParse("cursor:auto")); got != subscriptionCallTimeout {
+		t.Fatalf("cursor timeout = %v, want %v", got, subscriptionCallTimeout)
+	}
+	if got := p.callTimeout(models.ModelRefParse("openrouter:x")); got != apiCallTimeout {
+		t.Fatalf("api timeout = %v, want %v", got, apiCallTimeout)
+	}
+}
+
+func TestResolveCLITimeout(t *testing.T) {
+	cfg := types.RunConfig{}
+	if got := ResolveCLITimeout(cfg); got != subscriptionCallTimeout {
+		t.Fatalf("default = %v", got)
+	}
+	cfg.CLITimeout = 90
+	if got := ResolveCLITimeout(cfg); got != 90*time.Minute {
+		t.Fatalf("cli-timeout = %v", got)
+	}
+	cfg = types.RunConfig{ToolTimeout: 120}
+	if got := ResolveCLITimeout(cfg); got != 120*time.Minute {
+		t.Fatalf("tool-timeout extends cli = %v", got)
 	}
 }

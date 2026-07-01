@@ -63,6 +63,7 @@ func BuildPool(cfg types.RunConfig, mcp bool, workdir, base string) *pool.ModelP
 		client.CursorWorkspace = base
 	}
 	p.Client = client
+	p.CLITimeout = pool.ResolveCLITimeout(cfg)
 	return p
 }
 

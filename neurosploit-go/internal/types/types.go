@@ -70,6 +70,7 @@ type RunConfig struct {
 	AutoTools    bool     `json:"auto_tools,omitempty"`
 	Interactive  bool     `json:"interactive,omitempty"`
 	ToolTimeout  int      `json:"tool_timeout,omitempty"`
+	CLITimeout   int      `json:"cli_timeout,omitempty"`
 	Playbook     string   `json:"playbook,omitempty"`
 	Skills       []string `json:"skills,omitempty"`
 	DisableTools []string `json:"disable_tools,omitempty"`

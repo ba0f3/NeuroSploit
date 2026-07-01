@@ -384,11 +384,11 @@ func (c ChatClient) ChatCLI(ctx context.Context, label, provider, model, system,
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", bin, err)
 		}
-	case <-time.After(10 * time.Minute):
+	case <-ctx.Done():
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
-		return "", fmt.Errorf("%s subscription CLI timed out after 600s", bin)
+		return "", fmt.Errorf("%s subscription CLI timed out: %w", bin, ctx.Err())
 	}
 	stdout := strings.TrimSpace(outBuf.String())
 	stderr := errBuf.String()
@@ -438,11 +438,11 @@ func chatClaudeStream(ctx context.Context, label, model, prompt, mcpConfig strin
 
 	select {
 	case <-readDone:
-	case <-time.After(15 * time.Minute):
+	case <-ctx.Done():
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
-		return "", fmt.Errorf("claude stream timed out after 900s")
+		return "", fmt.Errorf("claude stream timed out: %w", ctx.Err())
 	}
 	_ = cmd.Wait()
 	if hadErr != "" && result == "" {
@@ -659,11 +659,11 @@ func chatCursorCLI(ctx context.Context, bin, label, model, prompt, mcpConfig, wo
 		}()
 		select {
 		case <-readDone:
-		case <-time.After(15 * time.Minute):
+		case <-ctx.Done():
 			if cmd.Process != nil {
 				_ = cmd.Process.Kill()
 			}
-			return "", fmt.Errorf("%s stream timed out after 900s", bin)
+			return "", fmt.Errorf("%s stream timed out: %w", bin, ctx.Err())
 		}
 		if err := cmd.Wait(); err != nil {
 			detail := cursorCLIErrorDetail(errBuf.String(), "")
@@ -694,11 +694,11 @@ func chatCursorCLI(ctx context.Context, bin, label, model, prompt, mcpConfig, wo
 			detail := cursorCLIErrorDetail(errBuf.String(), outBuf.String())
 			return "", fmt.Errorf("%s: %w: %s", bin, err, detail)
 		}
-	case <-time.After(10 * time.Minute):
+	case <-ctx.Done():
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
-		return "", fmt.Errorf("%s timed out after 600s", bin)
+		return "", fmt.Errorf("%s timed out: %w", bin, ctx.Err())
 	}
 	result, err := parseCursorOutput(outBuf.String())
 	if err != nil {
@@ -781,6 +781,9 @@ func cursorCLIErrorDetail(stderr, stdout string) string {
 	}
 	if detail == "" {
 		return "no output (try `agent update`; cursor headless needs a single serial invocation per workspace)"
+	}
+	if strings.Contains(detail, "signal: killed") {
+		return detail + " (likely session timeout — increase with --cli-timeout or --tool-timeout)"
 	}
 	return truncate(detail, 240)
 }

@@ -51,7 +51,7 @@ func runCmd() *cobra.Command {
 	var offline, subscription, mcp, autoTools, interactive, autoSkills bool
 	var credsPath, focus, playbook, skillsFlag, disableTools string
 	var verbose bool
-	var toolTimeout int
+	var toolTimeout, cliTimeout int
 
 	cmd := &cobra.Command{
 		Use:   "run <url>",
@@ -72,6 +72,7 @@ func runCmd() *cobra.Command {
 			cfg.AutoSkills = autoSkills
 			cfg.Playbook = playbook
 			cfg.ToolTimeout = toolTimeout
+			cfg.CLITimeout = cliTimeout
 			if skillsFlag != "" {
 				cfg.Skills = strings.Split(skillsFlag, ",")
 			}
@@ -105,7 +106,8 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&playbook, "playbook", "", "Run a named playbook instead of the default pipeline")
 	cmd.Flags().StringVar(&skillsFlag, "skills", "", "Comma-separated skills to inject")
 	cmd.Flags().StringVar(&disableTools, "disable-tools", "", "Comma-separated tools to disable")
-	cmd.Flags().IntVar(&toolTimeout, "tool-timeout", 0, "Tool timeout in minutes (0 = recipe default)")
+	cmd.Flags().IntVar(&toolTimeout, "tool-timeout", 0, "Tool timeout in minutes (0 = recipe default; also extends CLI session if larger)")
+	cmd.Flags().IntVar(&cliTimeout, "cli-timeout", 0, "Subscription/CLI agent session timeout in minutes (0 = 60; use for long sqlmap/nmap runs)")
 	return cmd
 }
 

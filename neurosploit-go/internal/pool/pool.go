@@ -11,6 +11,12 @@ import (
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/models"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/skills"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/tools"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
+)
+
+const (
+	apiCallTimeout          = 10 * time.Minute
+	subscriptionCallTimeout = 60 * time.Minute
 )
 
 // Task describes the kind of work the model router should optimize for.
@@ -38,6 +44,7 @@ type ModelPool struct {
 	Candidates   []models.ModelRef
 	Subscription bool
 	MCPConfig    string
+	CLITimeout   time.Duration
 	Progress     chan<- string
 
 	ToolRegistry *tools.Registry
@@ -166,12 +173,37 @@ func (p *ModelPool) One(label string, m models.ModelRef, system, user string) (s
 	if p.cancel.Load() {
 		return "", fmt.Errorf("cancelled")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), p.callTimeout(m))
 	defer cancel()
 	if p.Subscription || models.ImpliesSubscription(m.Provider) {
 		return p.Client.ChatCLI(ctx, label, m.Provider, m.Model, system, user, p.MCPConfig, p.Progress)
 	}
 	return p.Client.Chat(ctx, m, system, user)
+}
+
+func (p *ModelPool) callTimeout(m models.ModelRef) time.Duration {
+	if p.Subscription || models.ImpliesSubscription(m.Provider) {
+		if p.CLITimeout > 0 {
+			return p.CLITimeout
+		}
+		return subscriptionCallTimeout
+	}
+	return apiCallTimeout
+}
+
+// ResolveCLITimeout picks the subscription/CLI session deadline from config.
+// Tool-timeout can extend it when tools like sqlmap need longer than the default.
+func ResolveCLITimeout(cfg types.RunConfig) time.Duration {
+	d := subscriptionCallTimeout
+	if cfg.CLITimeout > 0 {
+		d = time.Duration(cfg.CLITimeout) * time.Minute
+	}
+	if cfg.ToolTimeout > 0 {
+		if t := time.Duration(cfg.ToolTimeout) * time.Minute; t > d {
+			d = t
+		}
+	}
+	return d
 }
 
 // Complete routes a prompt to the best model for task, failing over on exhaustion.
@@ -245,7 +277,7 @@ func (p *ModelPool) CompleteWithTools(label string, task Task, system, user stri
 }
 
 func (p *ModelPool) oneWithTools(label string, m models.ModelRef, system, user string, tools []map[string]any) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), p.callTimeout(m))
 	defer cancel()
 	if p.Subscription || models.ImpliesSubscription(m.Provider) {
 		return p.Client.ChatCLI(ctx, label, m.Provider, m.Model, system, user, p.MCPConfig, p.Progress)
