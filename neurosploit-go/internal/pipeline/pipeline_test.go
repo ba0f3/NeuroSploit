@@ -65,6 +65,48 @@ func findRepoRoot(t *testing.T) string {
 	}
 }
 
+func TestRunGreyboxOffline(t *testing.T) {
+	base := findRepoRoot(t)
+	lib := agents.Load(base)
+	workdir := filepath.Join(t.TempDir(), "runs", "ns-gb")
+	wd := workdir
+	repo := "/tmp/nonexistent-repo"
+	cfg := types.NewRunConfig("http://example.test")
+	cfg.Repo = &repo
+	cfg.Offline = true
+	cfg.Workdir = &wd
+	cfg.MaxAgents = 1
+	progress := make(chan string, 8)
+	go func() {
+		for range progress {
+		}
+	}()
+	out := RunGreybox(context.Background(), cfg, lib, stubPool{reconJSON: `{}`, exploitJSON: `[]`}, progress)
+	if out.Workdir != workdir {
+		t.Fatalf("workdir = %q", out.Workdir)
+	}
+}
+
+func TestRunHostOffline(t *testing.T) {
+	base := findRepoRoot(t)
+	lib := agents.Load(base)
+	workdir := filepath.Join(t.TempDir(), "runs", "ns-host")
+	wd := workdir
+	cfg := types.NewRunConfig("10.0.0.1")
+	cfg.Offline = true
+	cfg.Workdir = &wd
+	cfg.MaxAgents = 1
+	progress := make(chan string, 8)
+	go func() {
+		for range progress {
+		}
+	}()
+	out := RunHost(context.Background(), cfg, lib, stubPool{reconJSON: `{}`, exploitJSON: `[]`}, progress)
+	if out.Workdir != workdir {
+		t.Fatalf("workdir = %q", out.Workdir)
+	}
+}
+
 func TestRunOfflineIntegration(t *testing.T) {
 	base := findRepoRoot(t)
 	lib := agents.Load(base)

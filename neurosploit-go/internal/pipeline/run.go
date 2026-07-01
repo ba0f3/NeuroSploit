@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -306,15 +307,22 @@ func parallelExploit(ctx context.Context, cfg types.RunConfig, selected []agents
 			} else {
 				m, text, err = p.Complete(ag.Name, pool.TaskExploit, system, user)
 			}
+			verb := "exploit"
+			if builder.host {
+				verb = "test"
+			}
 			if err != nil {
-				sendProgress(progress, fmt.Sprintf("exploit %s failed: %v", ag.Name, err))
+				sendProgress(progress, fmt.Sprintf("%s %s failed: %v", verb, ag.Name, err))
 				results[i] = exploitResult{name: ag.Name, text: fmt.Sprintf("ERROR: %v", err)}
 				return nil
 			}
 			f := extractFindings(text, ag.Name)
-			sendProgress(progress, fmt.Sprintf("exploit %s via %s → %d candidate(s)", ag.Name, m.Label(), len(f)))
+			sendProgress(progress, fmt.Sprintf("%s %s via %s → %d candidate(s)", verb, ag.Name, m.Label(), len(f)))
 			for _, c := range f {
 				sendProgress(progress, fmt.Sprintf("finding: [%s] %s @ %s", c.Severity, c.Title, c.Endpoint))
+				if b, err := json.Marshal(c); err == nil {
+					sendProgress(progress, "finding_json: "+string(b))
+				}
 			}
 			results[i] = exploitResult{name: ag.Name, text: text, findings: f}
 			return nil

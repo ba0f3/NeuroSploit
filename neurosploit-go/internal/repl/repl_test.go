@@ -18,14 +18,38 @@ func TestHandleLineSetTarget(t *testing.T) {
 	}
 }
 
+func TestHandleLineCreds(t *testing.T) {
+	s := NewSession()
+	var buf bytes.Buffer
+	if err := s.HandleLine("/creds /tmp/creds.yaml", &buf); err != nil {
+		t.Fatal(err)
+	}
+	if s.CredsPath != "/tmp/creds.yaml" {
+		t.Errorf("creds = %q", s.CredsPath)
+	}
+}
+
 func TestHandleLineShow(t *testing.T) {
 	s := NewSession()
 	var buf bytes.Buffer
 	if err := s.HandleLine("/show", &buf); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(buf.String(), "target:") {
-		t.Errorf("show output missing target: %q", buf.String())
+	if !strings.Contains(buf.String(), "mode:") {
+		t.Errorf("show output missing mode: %q", buf.String())
+	}
+}
+
+func TestHandleLineShowModeGreybox(t *testing.T) {
+	s := NewSession()
+	s.Repo = "/tmp/repo"
+	s.Target = "http://app"
+	var buf bytes.Buffer
+	if err := s.HandleLine("/show", &buf); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "greybox") {
+		t.Errorf("show output: %q", buf.String())
 	}
 }
 
