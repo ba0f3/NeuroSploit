@@ -6,18 +6,16 @@ on:
     paths:
       - "neurosploit-go/**"
       - "agents_md/**"
+      - "Makefile"
       - ".github/workflows/go-ci.yml"
       - ".goreleaser.yaml"
   pull_request:
     paths:
       - "neurosploit-go/**"
       - "agents_md/**"
+      - "Makefile"
       - ".github/workflows/go-ci.yml"
       - ".goreleaser.yaml"
-
-defaults:
-  run:
-    working-directory: neurosploit-go
 
 jobs:
   test:
@@ -32,10 +30,10 @@ jobs:
           cache-dependency-path: neurosploit-go/go.sum
 
       - name: Vet
-        run: go vet ./...
+        run: make vet
 
       - name: Test
-        run: go test ./... -timeout 30s
+        run: make test
 
   build:
     name: release build
@@ -53,7 +51,7 @@ jobs:
         run: make build-release
 
       - name: Smoke test
-        run: ./neurosploit --version
+        run: ./neurosploit-go/neurosploit --version
 
   goreleaser-check:
     name: goreleaser config
