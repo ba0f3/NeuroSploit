@@ -98,6 +98,7 @@ reports/*.html
 reports/report_rs.html
 runs/
 data/rl_state_rs.json
+data/rl_state_go.json
 neurosploit-rs/runs/
 v34_gui.png
 data/repl_runs.json
