@@ -8,13 +8,13 @@ import (
 	"strings"
 
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/agents"
-	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/creds"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/engagement"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/models"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pipeline"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pool"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/repl"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/skills"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/source"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/tools"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/tui"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
@@ -41,7 +41,7 @@ After recon it selects agents, runs them in parallel, then validates findings by
 			return repl.Run(findBase())
 		},
 	}
-	root.AddCommand(runCmd(), whiteboxCmd(), tuiCmd(), agentsCmd(), modelsCmd())
+	root.AddCommand(runCmd(), whiteboxCmd(), greyboxCmd(), hostCmd(), tuiCmd(), agentsCmd(), modelsCmd())
 	return root
 }
 
@@ -82,13 +82,14 @@ func runCmd() *cobra.Command {
 			if focus != "" {
 				cfg.Instructions = &focus
 			}
-			cr := loadCreds(credsPath)
-			applyCreds(&cfg, cr)
+			if err := engagement.ApplyCreds(cmd.Context(), &cfg, credsPath); err != nil {
+				return err
+			}
 			if offline {
 				cfg.Offline = false
-				return runEngagement(cmd.Context(), cfg, cr, mcp, "run", offlineStubPool{})
+				return runEngagement(cmd.Context(), cfg, mcp, "run", offlineStubPool{})
 			}
-			return runEngagement(cmd.Context(), cfg, cr, mcp, "run", nil)
+			return runEngagement(cmd.Context(), cfg, mcp, "run", nil)
 		},
 	}
 	cmd.Flags().StringArrayVar(&modelsFlag, "model", []string{"anthropic:claude-opus-4-8"}, "Models as provider:model")
@@ -131,9 +132,10 @@ func whiteboxCmd() *cobra.Command {
 			cfg.VoteN = voteN
 			cfg.Subscription = subscription
 			cfg.Verbose = verbose
-			cr := loadCreds(credsPath)
-			applyCreds(&cfg, cr)
-			return runEngagement(cmd.Context(), cfg, cr, mcp, "whitebox", nil)
+			if err := engagement.ApplyCreds(cmd.Context(), &cfg, credsPath); err != nil {
+				return err
+			}
+			return runEngagement(cmd.Context(), cfg, mcp, "whitebox", nil)
 		},
 	}
 	cmd.Flags().StringArrayVar(&modelsFlag, "model", []string{"anthropic:claude-opus-4-8"}, "Models as provider:model")
@@ -146,25 +148,143 @@ func whiteboxCmd() *cobra.Command {
 	return cmd
 }
 
+func greyboxCmd() *cobra.Command {
+	var url string
+	var modelsFlag []string
+	var maxAgents, voteN int
+	var offline, subscription, mcp, verbose bool
+	var credsPath, focus string
+
+	cmd := &cobra.Command{
+		Use:   "greybox <repo>",
+		Short: "Review source and exploit the running app together",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			base := findBase()
+			repo, err := source.Resolve(base, args[0])
+			if err != nil {
+				return err
+			}
+			cfg := types.NewRunConfig(engagement.NormalizeURL(url))
+			cfg.Repo = &repo
+			cfg.Models = defaultModels(modelsFlag)
+			cfg.MaxAgents = maxAgents
+			cfg.VoteN = voteN
+			if cfg.VoteN == 0 {
+				cfg.VoteN = 3
+			}
+			cfg.Subscription = subscription
+			cfg.Verbose = verbose
+			if focus != "" {
+				cfg.Instructions = &focus
+			}
+			if err := engagement.ApplyCreds(cmd.Context(), &cfg, credsPath); err != nil {
+				return err
+			}
+			stub := pipeline.PoolCaller(nil)
+			if offline {
+				stub = offlineStubPool{}
+			}
+			return runEngagement(cmd.Context(), cfg, mcp, "greybox", stub)
+		},
+	}
+	cmd.Flags().StringVar(&url, "url", "", "URL of the running application")
+	cmd.Flags().StringArrayVar(&modelsFlag, "model", []string{"anthropic:claude-opus-4-8"}, "Models as provider:model")
+	cmd.Flags().IntVar(&maxAgents, "max-agents", 0, "Maximum agents to launch")
+	cmd.Flags().IntVar(&voteN, "vote-n", 3, "Cross-model validation panel size")
+	cmd.Flags().BoolVar(&offline, "offline", false, "Offline self-test using stubbed pool")
+	cmd.Flags().BoolVar(&subscription, "subscription", false, "Use local CLI subscriptions")
+	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable Playwright MCP if available")
+	cmd.Flags().StringVar(&credsPath, "creds", "", "Path to creds.yaml")
+	cmd.Flags().StringVar(&focus, "focus", "", "Focus instructions")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+	_ = cmd.MarkFlagRequired("url")
+	return cmd
+}
+
+func hostCmd() *cobra.Command {
+	var modelsFlag []string
+	var maxAgents, voteN int
+	var offline, subscription, verbose bool
+	var credsPath, focus string
+
+	cmd := &cobra.Command{
+		Use:   "host <target>",
+		Short: "Scan and test an infrastructure target (Linux/Windows/AD)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg := types.NewRunConfig(args[0])
+			cfg.Models = defaultModels(modelsFlag)
+			cfg.MaxAgents = maxAgents
+			cfg.VoteN = voteN
+			if cfg.VoteN == 0 {
+				cfg.VoteN = 3
+			}
+			cfg.Subscription = subscription
+			cfg.Verbose = verbose
+			if focus != "" {
+				cfg.Instructions = &focus
+			}
+			if err := engagement.ApplyCreds(cmd.Context(), &cfg, credsPath); err != nil {
+				return err
+			}
+			stub := pipeline.PoolCaller(nil)
+			if offline {
+				stub = offlineStubPool{}
+			}
+			return runEngagement(cmd.Context(), cfg, false, "host", stub)
+		},
+	}
+	cmd.Flags().StringArrayVar(&modelsFlag, "model", []string{"anthropic:claude-opus-4-8"}, "Models as provider:model")
+	cmd.Flags().StringVar(&credsPath, "creds", "", "Path to creds.yaml (ssh/windows blocks)")
+	cmd.Flags().StringVar(&focus, "focus", "", "Focus instructions")
+	cmd.Flags().IntVar(&maxAgents, "max-agents", 0, "Maximum infra agents to launch")
+	cmd.Flags().IntVar(&voteN, "vote-n", 3, "Cross-model validation panel size")
+	cmd.Flags().BoolVar(&offline, "offline", false, "Offline self-test using stubbed pool")
+	cmd.Flags().BoolVar(&subscription, "subscription", false, "Use local CLI subscriptions")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+	return cmd
+}
+
 func tuiCmd() *cobra.Command {
 	var modelsFlag []string
 	var subscription, mcp, verbose bool
+	var repoFlag, credsPath, focus string
 
 	cmd := &cobra.Command{
 		Use:   "tui <url>",
 		Short: "Mission Control TUI for a live engagement",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg := types.NewRunConfig(args[0])
+			base := findBase()
+			mode := "run"
+			cfg := types.NewRunConfig(engagement.NormalizeURL(args[0]))
+			if repoFlag != "" {
+				mode = "greybox"
+				repo, err := source.Resolve(base, repoFlag)
+				if err != nil {
+					return err
+				}
+				cfg.Repo = &repo
+			}
 			cfg.Models = defaultModels(modelsFlag)
 			cfg.MaxAgents = 5
 			cfg.VoteN = 3
 			cfg.Subscription = subscription
 			cfg.Verbose = verbose
-			return tui.Run(findBase(), cfg, "run", mcp)
+			if focus != "" {
+				cfg.Instructions = &focus
+			}
+			if err := engagement.ApplyCreds(cmd.Context(), &cfg, credsPath); err != nil {
+				return err
+			}
+			return tui.Run(base, cfg, mode, mcp)
 		},
 	}
 	cmd.Flags().StringArrayVar(&modelsFlag, "model", []string{"anthropic:claude-opus-4-8"}, "Models as provider:model")
+	cmd.Flags().StringVar(&repoFlag, "repo", "", "Source repo path or GitHub URL (greybox mode)")
+	cmd.Flags().StringVar(&credsPath, "creds", "", "Path to creds.yaml")
+	cmd.Flags().StringVar(&focus, "focus", "", "Focus instructions")
 	cmd.Flags().BoolVar(&subscription, "subscription", false, "Use local CLI subscriptions")
 	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable MCP")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
@@ -242,23 +362,7 @@ func findBase() string {
 	return cwd
 }
 
-func loadCreds(path string) *creds.Creds {
-	if path == "" {
-		return nil
-	}
-	return creds.Load(path)
-}
-
-func applyCreds(cfg *types.RunConfig, cr *creds.Creds) {
-	if cr == nil {
-		return
-	}
-	if h := cr.AuthHeader(); h != nil {
-		cfg.Auth = h
-	}
-}
-
-func runEngagement(ctx context.Context, cfg types.RunConfig, cr *creds.Creds, mcp bool, mode string, stub pipeline.PoolCaller) error {
+func runEngagement(ctx context.Context, cfg types.RunConfig, mcp bool, mode string, stub pipeline.PoolCaller) error {
 	base := findBase()
 	progress := make(chan string, 128)
 	done := make(chan struct{})
@@ -273,7 +377,6 @@ func runEngagement(ctx context.Context, cfg types.RunConfig, cr *creds.Creds, mc
 	close(progress)
 	<-done
 
-	_ = cr
 	printFindings(out.Findings)
 	if len(out.Artifacts) > 0 {
 		fmt.Printf("artifacts: %s\n", strings.Join(out.Artifacts, ", "))

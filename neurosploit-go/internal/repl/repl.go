@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/creds"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/engagement"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/models"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pipeline"
@@ -34,6 +35,7 @@ type Session struct {
 	Repo         string
 	Auth         string
 	Focus        string
+	CredsPath    string
 	Offline      bool
 
 	mu      sync.Mutex
@@ -172,8 +174,22 @@ func (s *Session) handle(line string, out io.Writer) error {
 	case "/help", "/?":
 		fmt.Fprint(out, helpText)
 	case "/show", "/config":
-		fmt.Fprintf(out, "target: %s\nmodels: %v\nsubscription: %v\nmcp: %v\nvote-n: %d\nmax-agents: %d\noffline: %v\n",
-			s.Target, s.Models, s.Subscription, s.MCP, s.VoteN, s.MaxAgents, s.Offline)
+		cr := (*creds.Creds)(nil)
+		if s.CredsPath != "" {
+			cr = creds.Load(s.CredsPath)
+		}
+		mode, _ := engagement.DetectMode(s.Repo, s.Target, cr)
+		if s.Repo != "" && s.Target == "" {
+			mode = "whitebox"
+		} else if s.Repo == "" && s.Target == "" {
+			mode = ""
+		}
+		modeStr := "(set /target and/or /repo)"
+		if mode != "" {
+			modeStr = engagement.ModeLabel(mode)
+		}
+		fmt.Fprintf(out, "mode: %s\ntarget: %s\nrepo: %s\ncreds: %s\nmodels: %v\nsubscription: %v\nmcp: %v\nvote-n: %d\nmax-agents: %d\noffline: %v\n",
+			modeStr, s.Target, s.Repo, s.CredsPath, s.Models, s.Subscription, s.MCP, s.VoteN, s.MaxAgents, s.Offline)
 	case "/providers":
 		for _, p := range models.Providers() {
 			fmt.Fprintf(out, "%-12s %s\n", p.Key, p.Label)
@@ -198,6 +214,13 @@ func (s *Session) handle(line string, out io.Writer) error {
 			fmt.Fprintf(out, "repo set to %s\n", s.Repo)
 		} else {
 			fmt.Fprintf(out, "repo: %s\n", s.Repo)
+		}
+	case "/creds":
+		if len(args) > 0 {
+			s.CredsPath = args[0]
+			fmt.Fprintf(out, "creds set to %s\n", s.CredsPath)
+		} else {
+			fmt.Fprintf(out, "creds: %s\n", s.CredsPath)
 		}
 	case "/auth":
 		if len(args) > 0 {
@@ -233,9 +256,25 @@ func (s *Session) handle(line string, out io.Writer) error {
 		}
 		fmt.Fprintf(out, "max-agents: %d\n", s.MaxAgents)
 	case "/run":
-		if s.Target == "" {
-			fmt.Fprintln(out, "set a target first with /target <url>")
+		if s.Target == "" && s.Repo == "" {
+			fmt.Fprintln(out, "set /target <url> and/or /repo <path> first")
 			return nil
+		}
+		cr := (*creds.Creds)(nil)
+		if s.CredsPath != "" {
+			cr = creds.Load(s.CredsPath)
+		}
+		mode, err := engagement.DetectMode(s.Repo, s.Target, cr)
+		if err != nil {
+			fmt.Fprintln(out, err.Error())
+			return nil
+		}
+		if s.Repo != "" && s.Target == "" {
+			mode = "whitebox"
+		}
+		runTarget := s.Target
+		if runTarget == "" {
+			runTarget = s.Repo
 		}
 		s.mu.Lock()
 		if s.running {
@@ -247,9 +286,9 @@ func (s *Session) handle(line string, out io.Writer) error {
 		s.mu.Unlock()
 		ctx, cancel := context.WithCancel(context.Background())
 		s.cancel = cancel
-		s.live = &RunLive{Target: s.Target, Mode: "black-box", Phase: "starting", Started: time.Now()}
-		fmt.Fprintf(out, "starting run against %s\n", s.Target)
-		go s.backgroundRun(ctx, out)
+		s.live = &RunLive{Target: runTarget, Mode: engagement.ModeLabel(mode), Phase: "starting", Started: time.Now()}
+		fmt.Fprintf(out, "starting %s against %s\n", engagement.ModeLabel(mode), runTarget)
+		go s.backgroundRun(ctx, out, mode)
 	case "/stop":
 		if s.cancel != nil {
 			s.cancel()
@@ -296,7 +335,7 @@ func (s *Session) handle(line string, out io.Writer) error {
 	return nil
 }
 
-func (s *Session) backgroundRun(ctx context.Context, out io.Writer) {
+func (s *Session) backgroundRun(ctx context.Context, out io.Writer, mode string) {
 	defer func() {
 		s.mu.Lock()
 		s.running = false
@@ -304,6 +343,22 @@ func (s *Session) backgroundRun(ctx context.Context, out io.Writer) {
 	}()
 
 	cfg := s.RunConfig()
+	if s.Repo != "" {
+		cfg.Repo = &s.Repo
+	}
+	if cfg.Target == "" {
+		cfg.Target = s.Repo
+	}
+	_ = engagement.ApplyCreds(ctx, &cfg, s.CredsPath)
+
+	mcp := s.MCP
+	if mode == "whitebox" {
+		mcp = false
+	}
+	if mode == "host" {
+		mcp = false
+	}
+
 	progress := make(chan string, 128)
 	go func() {
 		for line := range progress {
@@ -312,12 +367,11 @@ func (s *Session) backgroundRun(ctx context.Context, out io.Writer) {
 		}
 	}()
 
-	var outRun pipeline.RunOutput
+	var stub pipeline.PoolCaller
 	if s.Offline {
-		outRun = engagement.Execute(ctx, s.Base, cfg, "run", s.MCP, &offlineStub{}, progress)
-	} else {
-		outRun = engagement.Execute(ctx, s.Base, cfg, "run", s.MCP, nil, progress)
+		stub = &offlineStub{}
 	}
+	outRun := engagement.Execute(ctx, s.Base, cfg, mode, mcp, stub, progress)
 	close(progress)
 
 	s.mu.Lock()
@@ -344,7 +398,7 @@ func (s *Session) ingestLive(line string) {
 	if strings.Contains(low, "selected") && strings.Contains(low, "agent") {
 		s.live.Phase = "planning"
 	}
-	if strings.HasPrefix(low, "exploit") {
+	if strings.HasPrefix(low, "exploit") || strings.HasPrefix(low, "test ") {
 		s.live.Phase = "exploiting"
 	}
 	if strings.Contains(low, "validating") || strings.HasPrefix(low, "vote") {
@@ -398,7 +452,7 @@ func (s *Session) HandleLine(line string, out io.Writer) error {
 }
 
 var commandList = []string{
-	"/help", "/show", "/config", "/providers", "/model", "/target", "/repo", "/auth", "/focus",
+	"/help", "/show", "/config", "/providers", "/model", "/target", "/repo", "/auth", "/creds", "/focus",
 	"/offline", "/sub", "/subscription", "/mcp", "/votes", "/max-agents", "/run", "/stop",
 	"/status", "/results", "/report", "/quit", "/exit",
 }
@@ -409,10 +463,12 @@ Available commands:
   /show, /config     Show current configuration
   /providers         List supported providers
   /model <m1> [m2..] Set model(s)
-  /target <url>      Set target
-  /repo <path>       Set repository path
+  /target <url>      Set live target (black-box or greybox with /repo)
+  /repo <path>       Set repository path (white-box alone, greybox with /target)
+  /creds <file.yaml> Credentials (jwt/login/ssh/windows)
   /auth <header>     Set auth header
   /focus <text>      Set focus instructions
+  Modes: /target only = black-box · /repo only = white-box · both = greybox · /target IP + /creds ssh = host
   /offline           Toggle stub offline harness (no API keys)
   /sub               Toggle subscription mode
   /mcp               Toggle MCP

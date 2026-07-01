@@ -18,11 +18,14 @@ This document tracks the status of the `neurosploit-go` port relative to `neuros
 | `harness/src/pool.rs` | `internal/pool` | ✅ | Semaphore, failover, pause/resume, voting. |
 | `harness/src/mcpbridge.rs` (design) | `internal/mcpbridge` | ✅ | Bash allowlist + `mvdan.cc/sh` parse; read/write/web. |
 | `harness/src/report.rs` | `internal/report` | ✅ | HTML report for persist. |
-| `harness/src/pipeline.rs` | `internal/pipeline` | ✅ | Run/Whitebox/Greybox/Host; recon→select→exploit→vote→chain; playbook mode via `--playbook`. |
+| `harness/src/pipeline.rs` | `internal/pipeline` | ✅ | Run/Whitebox/Greybox/Host orchestration; recon→select→exploit→vote→chain. |
+| `harness/src/integrations.rs` | `internal/integrations` | ✅ | Minimal: Load + AuthedCloneURL for private git clone (greybox/whitebox). |
+| — | `internal/source` | ✅ | `Resolve` — local path or cached `git clone` under `repos/`. |
+| — | `internal/engagement` | ✅ | `ApplyCreds`, `DetectMode`, `NormalizeURL`; shared CLI/REPL/TUI entry. |
 | `harness/src/rl.rs` | `internal/rl` | ✅ | Already implemented (existing). |
-| `app/src/main.rs` | `cmd/neurosploit` | ✅ | Cobra subcommands; `--playbook`, `--auto-tools`, `--interactive`, tool flags. |
-| `app/src/repl.rs` | `internal/repl` | ✅ | liner REPL with tab completion, history, slash commands. |
-| `app/src/tui.rs` | `internal/tui` | ✅ | bubbletea Mission Control TUI; stdio wizard helpers retained. |
+| `app/src/main.rs` | `cmd/neurosploit` | ✅ | `run`, `whitebox`, `greybox`, `host`, `tui`, `agents`, `models`. |
+| `app/src/repl.rs` | `internal/repl` | ✅ | Mode detection (black/white/grey/host), `/creds`, liner history. |
+| `app/src/tui.rs` | `internal/tui` | ✅ | Mission Control; `--repo` enables greybox mode. |
 | `agents_md/*.md` | `agents_md/*.md` | ✅ | Shared; incremental `Tools`/`Skills`/`Output Schema` metadata. |
 | — | `internal/tools` | ✅ | YAML tool recipes (`toolsdata/`), executor, dangerous-command guard. |
 | — | `internal/toolloop` | ✅ | ReAct loop; native `tool_calls` + `<tool_call>` fallback. |
@@ -39,8 +42,20 @@ This document tracks the status of the `neurosploit-go` port relative to `neuros
 5. **CLI `--offline`**: Go stub mode runs the full pipeline with canned responses (self-test); Rust `cfg.offline` skips live exploitation.
 6. **Tools/skills/playbooks**: Go-only extensions — `toolsdata/`, `skills_md/`, `playbooks/` with ReAct toolloop. Rust harness uses inline shell doctrine only.
 7. **Chain engine**: Go runs chain agents sequentially with precondition matching and early stop; Rust uses a single chain LLM round.
+8. **Host recon tool-loop**: Go `RunHost` uses the tools registry for recon when available; Rust uses LLM-only recon.
+9. **REPL host mode**: Go routes to `host` when `/target` is a non-HTTP IP/hostname and `/creds` has ssh/windows blocks. Rust REPL documents this but only implements it via the `host` CLI subcommand.
 
-## Verification
+## Greybox / Host parity checklist
+
+| Capability | Status |
+|---|---|
+| `pipeline.RunGreybox` / `RunHost` | ✅ |
+| CLI `greybox` / `host` subcommands | ✅ |
+| `engagement.ApplyCreds` (host SSH/AD + auto-login) | ✅ |
+| `source.Resolve` (GitHub clone) | ✅ |
+| REPL mode detection + `/creds` | ✅ |
+| TUI `--repo` greybox | ✅ |
+| Offline tests (`TestRunGreyboxOffline`, `TestRunHostOffline`) | ✅ |
 
 Run the full suite with:
 
