@@ -394,10 +394,14 @@ func validate(candidates []types.Finding, p PoolCaller, sys string, voteN int, p
 				f.Confidence = float64(yes) / float64(total)
 			}
 			verdict := "rejected"
-			if f.Validated {
+			if total == 0 {
+				sendProgress(progress, fmt.Sprintf("vote %s → skipped (no validator response)", f.Title))
+			} else if f.Validated {
 				verdict = "CONFIRMED"
 			}
-			sendProgress(progress, fmt.Sprintf("vote %s → %s (%s)", f.Title, verdict, f.Votes))
+			if total > 0 {
+				sendProgress(progress, fmt.Sprintf("vote %s → %s (%s)", f.Title, verdict, f.Votes))
+			}
 			validated[i] = f
 		}(i, c)
 	}

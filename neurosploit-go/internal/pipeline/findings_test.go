@@ -110,4 +110,18 @@ func TestIsNegativeFinding(t *testing.T) {
 	if isNegativeFinding(types.Finding{Title: "SQLi", Evidence: "HTTP/1.1 200 OK error in syntax"}) {
 		t.Fatal("real finding should not be negative")
 	}
+	if isNegativeFinding(types.Finding{
+		Title:    "IIS Tilde Enumeration",
+		Evidence: "HTTP/1.1 404 Not Found vs HTTP/1.1 400 Bad Request differential",
+	}) {
+		t.Fatal("404 differential evidence should not be filtered")
+	}
+}
+
+func TestExtractFindingsTilde404Evidence(t *testing.T) {
+	text := `[{"title":"IIS Tilde (~) Short-Name Enumeration","severity":"Medium","cwe":"CWE-200","endpoint":"http://example.com/","evidence":"HTTP/1.1 404 Not Found\nHTTP/1.1 400 Bad Request","impact":"oracle"}]`
+	got := extractFindings(text, "iis_tilde_shortname")
+	if len(got) != 1 {
+		t.Fatalf("got %d findings", len(got))
+	}
 }

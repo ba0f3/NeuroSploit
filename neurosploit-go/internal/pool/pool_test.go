@@ -106,6 +106,18 @@ func TestVoteSkip(t *testing.T) {
 	}
 }
 
+func TestVoteConcurrencyOne(t *testing.T) {
+	pool := New([]models.ModelRef{models.ModelRefParse("cursor:auto")}, 1)
+	pool.Client = fakeClient{}
+	confirmed, total := pool.Vote("sys", "user", 3, "")
+	if total != 1 {
+		t.Fatalf("total = %d, want 1 (single-model panel)", total)
+	}
+	if confirmed != 1 {
+		t.Fatalf("confirmed = %d, want 1", confirmed)
+	}
+}
+
 func TestCancel(t *testing.T) {
 	pool := New([]models.ModelRef{
 		models.ModelRefParse("anthropic:claude-opus-4-8"),

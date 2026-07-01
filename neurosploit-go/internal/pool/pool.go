@@ -351,23 +351,18 @@ func (p *ModelPool) Vote(system, user string, n int, skip string) (int, int) {
 	}
 	panel := ordered[:n]
 	confirmed, total := 0, 0
-panelLoop:
 	for _, m := range panel {
-		select {
-		case p.Sem <- struct{}{}:
-			if text, err := p.ONE("validate", m, system, user); err == nil {
-				total++
-				t := strings.ToLower(text)
-				if strings.Contains(t, `"verdict": "confirmed"`) ||
-					strings.HasPrefix(strings.TrimSpace(t), "yes") ||
-					strings.Contains(t, "confirmed: true") ||
-					strings.Contains(t, `is_real": true`) {
-					confirmed++
-				}
-			}
-			<-p.Sem
-		default:
-			break panelLoop
+		text, err := p.ONE("validate", m, system, user)
+		if err != nil {
+			continue
+		}
+		total++
+		t := strings.ToLower(text)
+		if strings.Contains(t, `"verdict": "confirmed"`) ||
+			strings.HasPrefix(strings.TrimSpace(t), "yes") ||
+			strings.Contains(t, "confirmed: true") ||
+			strings.Contains(t, `is_real": true`) {
+			confirmed++
 		}
 	}
 	return confirmed, total

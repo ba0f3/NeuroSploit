@@ -34,6 +34,9 @@ func persist(cfg types.RunConfig, recon, transcript, toolLog string, findings []
 	if transcript != "" {
 		put("exploitation.md", fmt.Sprintf("# Agent transcript — %s\n\n%s", cfg.Target, transcript))
 	}
+	if findings == nil {
+		findings = []types.Finding{}
+	}
 	data, err := json.MarshalIndent(findings, "", "  ")
 	if err != nil {
 		data = []byte("[]")
