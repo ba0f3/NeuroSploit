@@ -264,9 +264,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			line := m.input.Value()
 			m.input.SetValue("")
-			for _, l := range m.composer(line) {
-				m.feed = append(m.feed, l)
-			}
+			m.feed = append(m.feed, m.composer(line)...)
 			if m.done && (line == "quit" || line == "/quit" || line == "exit") {
 				return m, tea.Quit
 			}

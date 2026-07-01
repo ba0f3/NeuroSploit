@@ -6,6 +6,8 @@ GORELEASER := goreleaser
 REPO_ROOT := $(abspath .)
 GO_SOURCE_DIR := $(REPO_ROOT)/neurosploit-go
 AGENTS_SRC := $(REPO_ROOT)/agents_md
+GOPATH_BIN := $(shell cd $(GO_SOURCE_DIR) && $(GO) env GOPATH 2>/dev/null)/bin
+LINT_PATH := $(GOPATH_BIN):/home/linuxbrew/.linuxbrew/bin:$(PATH)
 VERSION ?= $(shell git -C $(GO_SOURCE_DIR) describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 BUILD_TAGS := embed_agents
@@ -30,7 +32,7 @@ test:
 	cd $(GO_SOURCE_DIR) && $(GO) test ./... -timeout 30s
 
 lint:
-	cd $(GO_SOURCE_DIR) && $(GOLANGCI_LINT) run ./...
+	cd $(GO_SOURCE_DIR) && PATH="$(LINT_PATH)" $(GOLANGCI_LINT) run ./...
 
 fmt:
 	cd $(GO_SOURCE_DIR) && $(GO) fmt ./...

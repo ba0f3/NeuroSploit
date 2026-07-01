@@ -194,7 +194,7 @@ type toolAwarePool struct {
 	skills   *skills.Library
 }
 
-func (w *toolAwarePool) SetProgress(ch chan<- string)              { w.inner.SetProgress(ch) }
+func (w *toolAwarePool) SetProgress(ch chan<- string) { w.inner.SetProgress(ch) }
 func (w *toolAwarePool) Complete(label string, task pool.Task, system, user string) (models.ModelRef, string, error) {
 	return w.inner.Complete(label, task, system, user)
 }
@@ -204,7 +204,7 @@ func (w *toolAwarePool) CompleteWithTools(label string, task pool.Task, system, 
 func (w *toolAwarePool) Vote(system, user string, n int, skip string) (int, int) {
 	return w.inner.Vote(system, user, n, skip)
 }
-func (w *toolAwarePool) StopExploiting() bool { return w.inner.StopExploiting() }
+func (w *toolAwarePool) StopExploiting() bool     { return w.inner.StopExploiting() }
 func (w *toolAwarePool) Tools() *tools.Registry   { return w.tools }
 func (w *toolAwarePool) Executor() tools.Executor { return w.executor }
 func (w *toolAwarePool) Skills() *skills.Library  { return w.skills }
