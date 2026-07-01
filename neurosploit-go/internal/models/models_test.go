@@ -237,6 +237,27 @@ func TestSubscriptionConcurrency(t *testing.T) {
 	}
 }
 
+func TestImpliesSubscription(t *testing.T) {
+	if !ImpliesSubscription("cursor") || !ImpliesSubscription("agent") {
+		t.Fatal("cursor/agent should imply subscription")
+	}
+	if ImpliesSubscription("anthropic") || ImpliesSubscription("openrouter") {
+		t.Fatal("API providers should not imply subscription")
+	}
+}
+
+func TestApplyImpliedSubscription(t *testing.T) {
+	if !ApplyImpliedSubscription(false, []string{"cursor:auto"}) {
+		t.Fatal("cursor model should imply subscription")
+	}
+	if ApplyImpliedSubscription(false, []string{"openrouter:minimax/minimax-m3"}) {
+		t.Fatal("openrouter should not imply subscription")
+	}
+	if !ApplyImpliedSubscription(true, []string{"openrouter:minimax/minimax-m3"}) {
+		t.Fatal("explicit subscription should stay on")
+	}
+}
+
 func TestWriteCLIPromptFile(t *testing.T) {
 	dir := t.TempDir()
 	path, err := writeCLIPromptFile(dir, "system\n\nuser `--rm -rf /`")

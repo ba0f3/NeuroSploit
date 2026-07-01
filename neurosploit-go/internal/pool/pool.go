@@ -168,7 +168,7 @@ func (p *ModelPool) One(label string, m models.ModelRef, system, user string) (s
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	if p.Subscription {
+	if p.Subscription || models.ImpliesSubscription(m.Provider) {
 		return p.Client.ChatCLI(ctx, label, m.Provider, m.Model, system, user, p.MCPConfig, p.Progress)
 	}
 	return p.Client.Chat(ctx, m, system, user)
@@ -247,7 +247,7 @@ func (p *ModelPool) CompleteWithTools(label string, task Task, system, user stri
 func (p *ModelPool) oneWithTools(label string, m models.ModelRef, system, user string, tools []map[string]any) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	if p.Subscription {
+	if p.Subscription || models.ImpliesSubscription(m.Provider) {
 		return p.Client.ChatCLI(ctx, label, m.Provider, m.Model, system, user, p.MCPConfig, p.Progress)
 	}
 	return p.Client.ChatWithTools(ctx, m, system, user, tools)

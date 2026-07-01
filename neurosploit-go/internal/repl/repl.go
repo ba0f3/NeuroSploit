@@ -388,6 +388,7 @@ func (s *Session) RunConfig() types.RunConfig {
 	if s.Auth != "" {
 		cfg.Auth = &s.Auth
 	}
+	cfg.Subscription = models.ApplyImpliedSubscription(cfg.Subscription, cfg.Models)
 	return cfg
 }
 

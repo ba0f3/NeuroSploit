@@ -788,7 +788,30 @@ func cursorCLIErrorDetail(stderr, stdout string) string {
 // UsesCursorCLI reports whether any candidate routes through the Cursor agent binary.
 func UsesCursorCLI(refs []ModelRef) bool {
 	for _, m := range refs {
-		if m.Provider == "cursor" || m.Provider == "agent" {
+		if ImpliesSubscription(m.Provider) {
+			return true
+		}
+	}
+	return false
+}
+
+// ImpliesSubscription reports providers that only run via local CLI login (no API key path).
+func ImpliesSubscription(provider string) bool {
+	switch provider {
+	case "cursor", "agent":
+		return true
+	default:
+		return false
+	}
+}
+
+// ApplyImpliedSubscription returns true when subscription should be on: explicit flag or CLI-only provider.
+func ApplyImpliedSubscription(explicit bool, modelList []string) bool {
+	if explicit {
+		return true
+	}
+	for _, s := range modelList {
+		if ImpliesSubscription(ModelRefParse(s).Provider) {
 			return true
 		}
 	}

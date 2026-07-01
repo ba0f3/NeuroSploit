@@ -80,6 +80,7 @@ func PrepareWorkdir(base string, cfg *types.RunConfig) (string, error) {
 // Execute runs the pipeline for the given mode and returns output.
 // progress receives live status lines; stub bypasses live model calls when non-nil.
 func Execute(ctx context.Context, base string, cfg types.RunConfig, mode string, mcp bool, stub pipeline.PoolCaller, progress chan<- string) pipeline.RunOutput {
+	cfg.Subscription = models.ApplyImpliedSubscription(cfg.Subscription, cfg.Models)
 	lib := agents.Load(base)
 	if _, err := PrepareWorkdir(base, &cfg); err != nil {
 		if progress != nil {
