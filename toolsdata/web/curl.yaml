@@ -11,6 +11,7 @@ parameters:
     required: true
     position: 0
     format: positional
+    target_format: url
   - name: method
     type: string
     description: HTTP method.
@@ -18,6 +19,7 @@ parameters:
     default: GET
     flag: -X
     format: flag
+    enum: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
   - name: headers
     type: string
     description: "Extra headers, e.g. \"Authorization: bearer xyz\"."

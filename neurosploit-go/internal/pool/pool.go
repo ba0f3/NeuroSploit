@@ -34,6 +34,7 @@ const (
 type ChatClient interface {
 	Chat(ctx context.Context, m models.ModelRef, system, user string) (string, error)
 	ChatWithTools(ctx context.Context, m models.ModelRef, system, user string, tools []map[string]any) (string, error)
+	ChatMessagesWithTools(ctx context.Context, m models.ModelRef, messages []models.ChatMessage, tools []map[string]any) (string, error)
 	ChatCLI(ctx context.Context, label, provider, model, system, user, mcpConfig string, progress chan<- string) (string, error)
 }
 
@@ -274,6 +275,12 @@ func (p *ModelPool) CompleteWithTools(label string, task Task, system, user stri
 		}
 		return models.ModelRef{}, "", lastErr
 	}
+}
+
+// CompleteMessagesWithTools routes a structured transcript with tool definitions to the best model.
+func (p *ModelPool) CompleteMessagesWithTools(label string, task Task, messages []models.ChatMessage, tools []map[string]any) (models.ModelRef, string, error) {
+	system, user := models.MessagesToSystemUser(messages)
+	return p.CompleteWithTools(label, task, system, user, tools)
 }
 
 func (p *ModelPool) oneWithTools(label string, m models.ModelRef, system, user string, tools []map[string]any) (string, error) {

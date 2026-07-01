@@ -138,3 +138,70 @@ func TestLoopMaxIterations(t *testing.T) {
 		t.Fatalf("expected max iterations error, got %v", err)
 	}
 }
+
+type recordingExecutor struct {
+	calls []tools.ToolCall
+}
+
+func (r *recordingExecutor) Execute(ctx context.Context, call tools.ToolCall) (tools.ToolResult, error) {
+	r.calls = append(r.calls, call)
+	return tools.ToolResult{Name: call.Name, ID: call.ID, Output: "ok", ExitCode: 0}, nil
+}
+
+func intPtr(v int) *int { return &v }
+
+func TestLoopValidationErrorAllowsRepair(t *testing.T) {
+	caller := &mockCaller{responses: []string{
+		`<tool_call>{"name":"katana","arguments":{"target":"https://example.com","depth":"d3"}}</tool_call>`,
+		`<tool_call>{"name":"katana","arguments":{"target":"https://example.com","depth":3}}</tool_call>`,
+		`done`,
+	}}
+	exec := &recordingExecutor{}
+	loop := &Loop{Caller: caller, Executor: exec, MaxIter: 4, MaxRepairAttempts: 2}
+	final, obs, err := loop.Run(context.Background(), "Test.", "Crawl", []tools.Tool{
+		{Name: "katana", Command: "katana", ShortDescription: "Crawler", Parameters: []tools.Parameter{
+			{Name: "target", Type: "string", Required: true, TargetFormat: "url"},
+			{Name: "depth", Type: "int", Min: intPtr(1), Max: intPtr(10)},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if final != "done" {
+		t.Fatalf("final = %q", final)
+	}
+	if len(exec.calls) != 1 {
+		t.Fatalf("expected one executed call, got %d", len(exec.calls))
+	}
+	if exec.calls[0].Args["depth"] != 3 {
+		t.Fatalf("executed depth = %#v", exec.calls[0].Args["depth"])
+	}
+	if len(obs) != 2 {
+		t.Fatalf("expected validation observation and execution observation, got %d", len(obs))
+	}
+	if !obs[0].Result.IsError || !strings.Contains(obs[0].Result.Error, "VALIDATION_ERROR") {
+		t.Fatalf("first observation should be validation error: %+v", obs[0])
+	}
+}
+
+func TestLoopStopsRepeatedInvalidCalls(t *testing.T) {
+	caller := &mockCaller{responses: []string{
+		`<tool_call>{"name":"katana","arguments":{"target":"https://example.com","depth":"d3"}}</tool_call>`,
+		`<tool_call>{"name":"katana","arguments":{"target":"https://example.com","depth":"d3"}}</tool_call>`,
+		`<tool_call>{"name":"katana","arguments":{"target":"https://example.com","depth":"d3"}}</tool_call>`,
+	}}
+	exec := &recordingExecutor{}
+	loop := &Loop{Caller: caller, Executor: exec, MaxIter: 5, MaxRepairAttempts: 2}
+	_, _, err := loop.Run(context.Background(), "Test.", "Crawl", []tools.Tool{
+		{Name: "katana", Command: "katana", ShortDescription: "Crawler", Parameters: []tools.Parameter{
+			{Name: "target", Type: "string", Required: true, TargetFormat: "url"},
+			{Name: "depth", Type: "int", Min: intPtr(1), Max: intPtr(10)},
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "repeated invalid tool call") {
+		t.Fatalf("expected repeated invalid error, got %v", err)
+	}
+	if len(exec.calls) != 0 {
+		t.Fatalf("invalid calls must not execute, got %d", len(exec.calls))
+	}
+}

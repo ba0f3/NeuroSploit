@@ -11,6 +11,7 @@ parameters:
     required: true
     position: 0
     format: positional
+    target_format: domain
   - name: record_type
     type: string
     description: DNS record type, e.g. A, AAAA, MX, NS, TXT.

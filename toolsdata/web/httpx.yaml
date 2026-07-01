@@ -13,6 +13,7 @@ parameters:
     required: true
     position: 0
     format: positional
+    target_format: url
   - name: follow_redirects
     type: bool
     description: Follow HTTP redirects.

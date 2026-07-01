@@ -9,7 +9,7 @@ import (
 
 func TestCheckBinaries(t *testing.T) {
 	r := &Registry{tools: map[string]Tool{
-		"curl": {Name: "curl", Command: "curl", InstallHint: "apt install curl"},
+		"curl":    {Name: "curl", Command: "curl", InstallHint: "apt install curl"},
 		"missing": {Name: "missing", Command: "definitely-not-a-real-binary-xyz", InstallHint: "n/a"},
 	}}
 	statuses := CheckBinaries(r)

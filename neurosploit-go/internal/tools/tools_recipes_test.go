@@ -104,6 +104,18 @@ func validateToolParameters(t *testing.T, tool Tool) {
 		if p.Format == "combined" && p.Flag == "" {
 			t.Fatalf("parameter %q: combined format requires flag prefix", p.Name)
 		}
+
+		switch p.TargetFormat {
+		case "", "host", "url", "domain", "ip", "cidr", "host_or_ip", "url_with_fuzz":
+		default:
+			t.Fatalf("parameter %q: unknown target_format %q", p.Name, p.TargetFormat)
+		}
+		if p.Min != nil && p.Max != nil && *p.Min > *p.Max {
+			t.Fatalf("parameter %q: min %v > max %v", p.Name, *p.Min, *p.Max)
+		}
+		if p.AllowShell && p.Name != "additional_args" {
+			t.Fatalf("parameter %q: allow_shell is only supported for additional_args", p.Name)
+		}
 	}
 
 	schema := tool.FunctionDefinition()
@@ -181,6 +193,14 @@ var toolArgvChecks = map[string]func(t *testing.T, argv []string){
 	"gobuster": func(t *testing.T, argv []string) {
 		assertArgvContains(t, argv, "gobuster", "dir", "-u", "https://example.com")
 	},
+	"katana": func(t *testing.T, argv []string) {
+		assertArgvContains(t, argv, "katana", "-u", "https://example.com", "-d", "3")
+		assertArgvNotContains(t, argv, "-d3")
+	},
+	"nuclei": func(t *testing.T, argv []string) {
+		assertArgvContains(t, argv, "nuclei", "-u", "https://example.com", "-s", "critical,high,medium")
+		assertArgvNotContains(t, argv, "-scritical")
+	},
 	"netexec": func(t *testing.T, argv []string) {
 		assertArgvContains(t, argv, "netexec", "smb", "example.com")
 	},
@@ -247,6 +267,103 @@ func TestAllToolRecipesParameters(t *testing.T) {
 			}
 		})
 	}
+}
+
+func schemaProperty(t *testing.T, tool Tool, name string) map[string]any {
+	t.Helper()
+	schema := tool.FunctionDefinition()
+	fn := schema["function"].(map[string]any)
+	params := fn["parameters"].(map[string]any)
+	props := params["properties"].(map[string]any)
+	prop, ok := props[name].(map[string]any)
+	if !ok {
+		t.Fatalf("schema property %q missing for tool %s", name, tool.Name)
+	}
+	return prop
+}
+
+func TestFunctionDefinitionIncludesSemanticConstraints(t *testing.T) {
+	tool := Tool{
+		Name:             "katana",
+		Command:          "katana",
+		ShortDescription: "crawler",
+		Parameters: []Parameter{
+			{Name: "target", Type: "string", Required: true, TargetFormat: "url"},
+			{Name: "depth", Type: "int", Required: false, Min: intPtr(1), Max: intPtr(10)},
+			{Name: "method", Type: "string", Required: false, Enum: []string{"GET", "POST"}},
+			{Name: "ports", Type: "string", Required: false, Pattern: `^\d+(,\d+)*$`},
+		},
+	}
+	target := schemaProperty(t, tool, "target")
+	if !strings.Contains(fmt.Sprint(target["description"]), "Expected format: url") {
+		t.Fatalf("target description missing semantic format: %#v", target)
+	}
+	depth := schemaProperty(t, tool, "depth")
+	if depth["minimum"] != 1 || depth["maximum"] != 10 {
+		t.Fatalf("depth min/max missing: %#v", depth)
+	}
+	method := schemaProperty(t, tool, "method")
+	if fmt.Sprint(method["enum"]) != "[GET POST]" {
+		t.Fatalf("method enum missing: %#v", method)
+	}
+	ports := schemaProperty(t, tool, "ports")
+	if ports["pattern"] != `^\d+(,\d+)*$` {
+		t.Fatalf("ports pattern missing: %#v", ports)
+	}
+}
+
+func intPtr(v int) *int { return &v }
+
+func TestCoreRecipesDeclareTargetFormats(t *testing.T) {
+	root := findRepoRoot()
+	if root == "" {
+		t.Skip("repo root not found")
+	}
+	reg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]map[string]string{
+		"nmap":      {"target": "host_or_ip"},
+		"rustscan":  {"target": "host_or_ip"},
+		"naabu":     {"host": "host_or_ip"},
+		"katana":    {"target": "url"},
+		"httpx":     {"target": "url"},
+		"whatweb":   {"target": "url"},
+		"nuclei":    {"target": "url"},
+		"curl":      {"url": "url"},
+		"wget":      {"url": "url"},
+		"ffuf":      {"target": "url_with_fuzz"},
+		"sqlmap":    {"target": "url"},
+		"subfinder": {"domain": "domain"},
+		"amass":     {"domain": "domain"},
+		"dig":       {"target": "domain"},
+		"whois":     {"target": "domain"},
+	}
+	for toolName, params := range want {
+		tool, ok := reg.Get(toolName)
+		if !ok {
+			t.Fatalf("tool %s missing", toolName)
+		}
+		for paramName, format := range params {
+			p, ok := findParam(tool, paramName)
+			if !ok {
+				t.Fatalf("%s.%s missing", toolName, paramName)
+			}
+			if p.TargetFormat != format {
+				t.Fatalf("%s.%s target_format = %q want %q", toolName, paramName, p.TargetFormat, format)
+			}
+		}
+	}
+}
+
+func findParam(tool Tool, name string) (Parameter, bool) {
+	for _, p := range tool.Parameters {
+		if p.Name == name {
+			return p, true
+		}
+	}
+	return Parameter{}, false
 }
 
 func TestAllToolRecipesBuildWithDefaultsOnly(t *testing.T) {

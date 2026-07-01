@@ -34,6 +34,11 @@ func (f fakeClient) ChatWithTools(ctx context.Context, m models.ModelRef, system
 	return f.Chat(ctx, m, system, user)
 }
 
+func (f fakeClient) ChatMessagesWithTools(ctx context.Context, m models.ModelRef, messages []models.ChatMessage, tools []map[string]any) (string, error) {
+	system, user := models.MessagesToSystemUser(messages)
+	return f.Chat(ctx, m, system, user)
+}
+
 func TestSetProgress(t *testing.T) {
 	p := New([]models.ModelRef{models.ModelRefParse("anthropic:claude-opus-4-8")}, 1)
 	ch := make(chan string, 1)

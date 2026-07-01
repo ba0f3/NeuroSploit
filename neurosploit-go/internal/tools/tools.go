@@ -30,14 +30,21 @@ type Tool struct {
 
 // Parameter describes one configurable argument of a tool.
 type Parameter struct {
-	Name        string `yaml:"name"`
-	Type        string `yaml:"type"`
-	Description string `yaml:"description"`
-	Required    bool   `yaml:"required,omitempty"`
-	Default     any    `yaml:"default,omitempty"`
-	Flag        string `yaml:"flag,omitempty"`
-	Format      string `yaml:"format,omitempty"`
-	Position    int    `yaml:"position,omitempty"`
+	Name         string   `yaml:"name"`
+	Type         string   `yaml:"type"`
+	Description  string   `yaml:"description"`
+	Required     bool     `yaml:"required,omitempty"`
+	Default      any      `yaml:"default,omitempty"`
+	Flag         string   `yaml:"flag,omitempty"`
+	Format       string   `yaml:"format,omitempty"`
+	Position     int      `yaml:"position,omitempty"`
+	TargetFormat string   `yaml:"target_format,omitempty"`
+	Min          *int     `yaml:"min,omitempty"`
+	Max          *int     `yaml:"max,omitempty"`
+	Enum         []string `yaml:"enum,omitempty"`
+	Pattern      string   `yaml:"pattern,omitempty"`
+	AllowShell   bool     `yaml:"allow_shell,omitempty"`
+	AllowedFlags []string `yaml:"allowed_flags,omitempty"`
 }
 
 // ToolCall is a request from an agent to run a tool.
@@ -175,9 +182,33 @@ func (t Tool) FunctionDefinition() map[string]any {
 		if p.Name == "additional_args" {
 			continue
 		}
+		desc := p.Description
+		if p.TargetFormat != "" {
+			desc = strings.TrimSpace(desc)
+			if desc != "" {
+				desc += " "
+			}
+			desc += fmt.Sprintf("Expected format: %s.", p.TargetFormat)
+		}
 		schema := map[string]any{
 			"type":        jsonType(p.Type),
-			"description": p.Description,
+			"description": desc,
+		}
+		if p.Min != nil {
+			schema["minimum"] = *p.Min
+		}
+		if p.Max != nil {
+			schema["maximum"] = *p.Max
+		}
+		if len(p.Enum) > 0 {
+			values := make([]any, 0, len(p.Enum))
+			for _, v := range p.Enum {
+				values = append(values, v)
+			}
+			schema["enum"] = values
+		}
+		if p.Pattern != "" {
+			schema["pattern"] = p.Pattern
 		}
 		if p.Default != nil {
 			schema["default"] = p.Default
@@ -235,7 +266,13 @@ func (e *DefaultExecutor) Execute(ctx context.Context, call ToolCall) (ToolResul
 		res.Error = fmt.Sprintf("unknown tool: %s", call.Name)
 		return res, nil
 	}
-	args, err := BuildCommand(tool, call.Args)
+	validation := ValidateCall(tool, call.Args, "")
+	if !validation.Runnable {
+		res.IsError = true
+		res.Error = FormatValidationIssues(validation.Issues)
+		return res, nil
+	}
+	args, err := BuildCommand(tool, validation.Args)
 	if err != nil {
 		res.IsError = true
 		res.Error = err.Error()

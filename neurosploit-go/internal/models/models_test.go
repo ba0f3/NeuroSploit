@@ -311,6 +311,19 @@ func containsAll(slice []string, items ...string) bool {
 	return true
 }
 
+func TestMessagesFromSystemUserKeepsStablePrefixSeparate(t *testing.T) {
+	msgs := MessagesFromSystemUser("stable system", "dynamic user")
+	if len(msgs) != 2 {
+		t.Fatalf("len = %d", len(msgs))
+	}
+	if msgs[0].Role != "system" || msgs[0].Content != "stable system" {
+		t.Fatalf("bad system message: %+v", msgs[0])
+	}
+	if msgs[1].Role != "user" || msgs[1].Content != "dynamic user" {
+		t.Fatalf("bad user message: %+v", msgs[1])
+	}
+}
+
 func TestBinaryInPath(t *testing.T) {
 	if !BinaryInPath("go") {
 		t.Errorf("BinaryInPath(go) should be true")

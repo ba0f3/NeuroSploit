@@ -11,13 +11,16 @@ parameters:
     required: true
     flag: -u
     format: flag
+    target_format: url
   - name: depth
     type: int
     description: Crawl depth.
     required: false
     default: 3
     flag: -d
-    format: combined
+    format: flag
+    min: 1
+    max: 10
   - name: js_crawl
     type: bool
     description: Crawl JavaScript files.

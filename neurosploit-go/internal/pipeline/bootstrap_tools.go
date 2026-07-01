@@ -51,10 +51,16 @@ func defaultToolArgs(tool tools.Tool, target string) (map[string]any, bool) {
 		if !p.Required {
 			continue
 		}
-		switch p.Name {
-		case "target", "url":
+		switch {
+		case p.TargetFormat == "host" || p.TargetFormat == "host_or_ip" || p.TargetFormat == "domain" || p.TargetFormat == "ip":
+			args[p.Name] = host
+		case p.TargetFormat == "url":
 			args[p.Name] = target
-		case "host", "domain":
+		case p.TargetFormat == "url_with_fuzz":
+			return nil, false
+		case p.Name == "target" || p.Name == "url":
+			args[p.Name] = target
+		case p.Name == "host" || p.Name == "domain":
 			args[p.Name] = host
 		default:
 			return nil, false
@@ -63,7 +69,11 @@ func defaultToolArgs(tool tools.Tool, target string) (map[string]any, bool) {
 	if len(args) == 0 {
 		args["target"] = target
 	}
-	return args, true
+	validation := tools.ValidateCall(tool, args, target)
+	if !validation.Runnable {
+		return nil, false
+	}
+	return validation.Args, true
 }
 
 func runBootstrapTools(ctx context.Context, executor tools.Executor, target string, toolList []tools.Tool, progress chan<- string) []toolloop.Observation {

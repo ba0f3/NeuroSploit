@@ -74,6 +74,7 @@ func toolDoctrine(mcpOn bool) string {
 			"install via apt (`apt install -y nmap`), brew, or cargo (`cargo install rustscan`) — "+
 			"otherwise probe common ports with `curl`/`nc`.\n"+
 			"- Content/params: `ffuf`, `gobuster`, `gau`, `katana` when available.\n"+
+			"- Tool argument shapes: host scanners (`nmap`, `rustscan`, `naabu`) take host/IP only, not `http://` URLs; web tools (`katana`, `httpx`, `nuclei`, `curl`) take full URLs; fuzzers require an explicit `FUZZ` marker where applicable.\n"+
 			"- %s\n"+
 			"Use only what is installed; degrade gracefully. Never run destructive or DoS actions.\n\n",
 		browser,

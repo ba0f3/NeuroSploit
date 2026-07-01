@@ -29,10 +29,11 @@ func (f CallerFunc) Call(ctx context.Context, system, user string, toolsJSON []m
 
 // Loop runs a ReAct-style tool loop.
 type Loop struct {
-	Caller   Caller
-	Executor tools.Executor
-	MaxIter  int
-	Progress chan<- string
+	Caller            Caller
+	Executor          tools.Executor
+	MaxIter           int
+	MaxRepairAttempts int
+	Progress          chan<- string
 }
 
 // Observation records one tool call and its result.
@@ -45,6 +46,14 @@ type Observation struct {
 func (l *Loop) Run(ctx context.Context, system, user string, toolList []tools.Tool) (string, []Observation, error) {
 	if l.MaxIter == 0 {
 		l.MaxIter = 10
+	}
+	if l.MaxRepairAttempts == 0 {
+		l.MaxRepairAttempts = 2
+	}
+	invalidCounts := map[string]int{}
+	toolsByName := map[string]tools.Tool{}
+	for _, t := range toolList {
+		toolsByName[t.Name] = t
 	}
 	toolDesc := renderToolPrompt(toolList)
 	fullSystem := system + "\n\n" + toolDesc
@@ -63,6 +72,35 @@ func (l *Loop) Run(ctx context.Context, system, user string, toolList []tools.To
 			return response, observations, nil
 		}
 		for _, call := range calls {
+			tool, ok := toolsByName[call.Name]
+			if !ok {
+				result := tools.ToolResult{Name: call.Name, ID: call.ID, IsError: true, Error: "VALIDATION_ERROR: unknown tool"}
+				observations = append(observations, Observation{Call: call, Result: result})
+				history += "\n\n" + formatObservation(call, result)
+				continue
+			}
+			validation := tools.ValidateCall(tool, call.Args, "")
+			if !validation.Runnable {
+				key := invalidFingerprint(call, validation.Issues)
+				invalidCounts[key]++
+				result := tools.ToolResult{
+					Name:    call.Name,
+					ID:      call.ID,
+					IsError: true,
+					Error:   formatValidationObservation(call, validation),
+				}
+				l.emit(formatToolProgress(call.Name, result))
+				observations = append(observations, Observation{Call: call, Result: result})
+				history += "\n\n" + formatObservation(call, result)
+				if invalidCounts[key] > l.MaxRepairAttempts {
+					return "", observations, fmt.Errorf("repeated invalid tool call: %s", call.Name)
+				}
+				continue
+			}
+			if len(validation.Warnings) > 0 {
+				history += "\n\n" + formatNormalizationObservation(call, validation)
+			}
+			call.Args = validation.Args
 			l.emit(fmt.Sprintf("tool run: %s", call.Name))
 			callCtx := tools.ContextWithIteration(ctx, i+1)
 			result, err := l.Executor.Execute(callCtx, call)
@@ -138,9 +176,10 @@ func renderToolPrompt(toolList []tools.Tool) string {
 	b.WriteString("</tool_call>\n\n")
 	b.WriteString("RULES:\n")
 	b.WriteString("1. Only use tools you have been given.\n")
-	b.WriteString("2. Wait for the observation after each tool call before deciding the next step.\n")
-	b.WriteString("3. If a tool call fails, you may retry with corrected arguments or stop.\n")
-	b.WriteString("4. When you have enough evidence, reply with your final answer only.\n")
+	b.WriteString("2. Use the parameter names and formats exactly as documented; host-only tools do not accept full URLs.\n")
+	b.WriteString("3. Wait for the observation after each tool call before deciding the next step.\n")
+	b.WriteString("4. If you receive VALIDATION_ERROR, repair the exact parameter named in the observation and retry once with corrected arguments.\n")
+	b.WriteString("5. When you have enough evidence, reply with your final answer only.\n")
 	return b.String()
 }
 
@@ -166,6 +205,42 @@ func formatObservation(call tools.ToolCall, result tools.ToolResult) string {
 		out = out[:8000] + "\n... [truncated]"
 	}
 	return fmt.Sprintf("OBSERVATION [tool=%s status=%s id=%s]:\n%s", call.Name, status, call.ID, out)
+}
+
+func formatValidationObservation(call tools.ToolCall, validation tools.ValidationResult) string {
+	var b strings.Builder
+	b.WriteString("VALIDATION_ERROR\n")
+	for _, issue := range validation.Issues {
+		fmt.Fprintf(&b, "parameter: %s\n", issue.Parameter)
+		fmt.Fprintf(&b, "code: %s\n", issue.Code)
+		fmt.Fprintf(&b, "expected: %s\n", issue.Expected)
+		fmt.Fprintf(&b, "received: %s\n", issue.Received)
+		if len(issue.Examples) > 0 {
+			b.WriteString("examples:\n")
+			for _, ex := range issue.Examples {
+				fmt.Fprintf(&b, "- %s\n", ex)
+			}
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func formatNormalizationObservation(call tools.ToolCall, validation tools.ValidationResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "OBSERVATION [tool=%s status=NORMALIZED id=%s]:\n", call.Name, call.ID)
+	for _, warning := range validation.Warnings {
+		fmt.Fprintf(&b, "parameter: %s\nmessage: %s\noriginal: %v\nnormalized: %v\n", warning.Parameter, warning.Message, warning.Original, warning.Normalized)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func invalidFingerprint(call tools.ToolCall, issues []tools.ValidationIssue) string {
+	var b strings.Builder
+	b.WriteString(call.Name)
+	for _, issue := range issues {
+		fmt.Fprintf(&b, "|%s=%s:%s", issue.Parameter, issue.Code, issue.Received)
+	}
+	return b.String()
 }
 
 var toolCallTagRe = regexp.MustCompile(`<tool_call>\s*(\{.*?\})\s*</tool_call>`)

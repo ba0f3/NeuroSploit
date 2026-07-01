@@ -13,17 +13,20 @@ parameters:
     required: true
     position: 0
     format: positional
+    target_format: host_or_ip
   - name: ports
     type: string
     description: Port range, e.g. 80,443 or 1-1000.
     required: false
     flag: -p
     format: combined
+    pattern: '^([0-9]{1,5})(-[0-9]{1,5})?(,([0-9]{1,5})(-[0-9]{1,5})?)*$'
   - name: additional_args
     type: string
     description: Extra nmap arguments (e.g. -T4).
     required: false
     format: positional
+    allowed_flags: [-T4, -T3, -A, -O, --version-light]
 timeout: 10m
 install_hint: apt install nmap | brew install nmap | yum install nmap
 tags: [network, portscan, recon]

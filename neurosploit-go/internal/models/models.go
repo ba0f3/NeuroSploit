@@ -88,6 +88,28 @@ type ModelRef struct {
 	Model    string
 }
 
+// ChatMessage is one turn in a structured chat transcript.
+type ChatMessage struct {
+	Role       string           `json:"role"`
+	Content    string           `json:"content,omitempty"`
+	Name       string           `json:"name,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
+	ToolCalls  []map[string]any `json:"tool_calls,omitempty"`
+}
+
+// MessagesFromSystemUser builds a minimal two-message transcript.
+func MessagesFromSystemUser(system, user string) []ChatMessage {
+	return []ChatMessage{
+		{Role: "system", Content: system},
+		{Role: "user", Content: user},
+	}
+}
+
+// MessagesToSystemUser flattens a message transcript into system and user strings.
+func MessagesToSystemUser(messages []ChatMessage) (string, string) {
+	return flattenMessages(messages)
+}
+
 // ModelRefParse parses a "provider:model" string. Defaults provider to anthropic.
 func ModelRefParse(s string) ModelRef {
 	if i := strings.Index(s, ":"); i >= 0 {
@@ -243,6 +265,31 @@ func (c ChatClient) ChatWithTools(ctx context.Context, m ModelRef, system, user 
 		return "", fmt.Errorf("%s returned %d: %s", p.Key, resp.StatusCode, truncate(string(text), 200))
 	}
 	return string(text), nil
+}
+
+// ChatMessagesWithTools performs a chat completion from a structured message transcript.
+func (c ChatClient) ChatMessagesWithTools(ctx context.Context, m ModelRef, messages []ChatMessage, tools []map[string]any) (string, error) {
+	if len(messages) == 0 {
+		return "", fmt.Errorf("messages required")
+	}
+	system, user := flattenMessages(messages)
+	return c.ChatWithTools(ctx, m, system, user, tools)
+}
+
+func flattenMessages(messages []ChatMessage) (string, string) {
+	var system []string
+	var user []string
+	for _, msg := range messages {
+		switch msg.Role {
+		case "system":
+			system = append(system, msg.Content)
+		default:
+			if msg.Content != "" {
+				user = append(user, strings.ToUpper(msg.Role)+": "+msg.Content)
+			}
+		}
+	}
+	return strings.Join(system, "\n\n"), strings.Join(user, "\n\n")
 }
 
 // Chat performs one HTTP chat completion.

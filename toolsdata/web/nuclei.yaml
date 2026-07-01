@@ -11,6 +11,7 @@ parameters:
     required: true
     flag: -u
     format: flag
+    target_format: url
   - name: templates
     type: string
     description: Template directory or path.
@@ -23,7 +24,7 @@ parameters:
     required: false
     default: critical,high,medium
     flag: -s
-    format: combined
+    format: flag
   - name: additional_args
     type: string
     description: Extra nuclei arguments.
