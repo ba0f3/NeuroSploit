@@ -183,7 +183,6 @@ func greyboxCmd() *cobra.Command {
 			}
 			stub := pipeline.PoolCaller(nil)
 			if offline {
-				cfg.Offline = false
 				stub = offlineStubPool{}
 			}
 			return runEngagement(cmd.Context(), cfg, mcp, "greybox", stub)
@@ -231,7 +230,6 @@ func hostCmd() *cobra.Command {
 			}
 			stub := pipeline.PoolCaller(nil)
 			if offline {
-				cfg.Offline = false
 				stub = offlineStubPool{}
 			}
 			return runEngagement(cmd.Context(), cfg, false, "host", stub)

@@ -31,17 +31,58 @@ func Resolve(base, arg string) (string, error) {
 		return dest, nil
 	}
 	ig := integrations.Load(repl.ProjDir())
-	cloneURL := ig.AuthedCloneURL(target)
-	private := cloneURL != target
+	auth := ig.CloneAuth(target)
+	private := auth.Password != ""
 	fmt.Fprintf(os.Stderr, "  [*] cloning %s%s → %s\n", target, privateNote(private), dest)
-	cmd := exec.Command("git", "clone", "--depth", "1", cloneURL, dest)
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := gitClone(auth, dest); err != nil {
 		_ = os.RemoveAll(dest)
 		return "", fmt.Errorf("git clone failed for %s: %w", target, err)
 	}
 	return dest, nil
+}
+
+func gitClone(auth integrations.CloneAuth, dest string) error {
+	cmd := exec.Command("git", "clone", "--depth", "1", auth.URL, dest)
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	if auth.Password != "" {
+		script, cleanup, err := writeAskpassScript()
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+		cmd.Env = append(os.Environ(),
+			"GIT_ASKPASS="+script,
+			"GIT_TERMINAL_PROMPT=0",
+			"GIT_CLONE_USER="+auth.Username,
+			"GIT_CLONE_PASS="+auth.Password,
+		)
+	}
+	return cmd.Run()
+}
+
+func writeAskpassScript() (path string, cleanup func(), err error) {
+	f, err := os.CreateTemp("", "ns-git-askpass-*.sh")
+	if err != nil {
+		return "", nil, err
+	}
+	path = f.Name()
+	script := "#!/bin/sh\ncase \"$1\" in\n*Username*|*username*) printf '%s\\n' \"$GIT_CLONE_USER\" ;;\n*) printf '%s\\n' \"$GIT_CLONE_PASS\" ;;\nesac\n"
+	if _, err := f.WriteString(script); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return "", nil, err
+	}
+	if err := f.Chmod(0700); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return "", nil, err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", nil, err
+	}
+	return path, func() { _ = os.Remove(path) }, nil
 }
 
 func privateNote(private bool) string {

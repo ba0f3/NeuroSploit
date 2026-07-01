@@ -19,6 +19,7 @@ func TestDetectMode(t *testing.T) {
 		{"/repo", "", nil, "whitebox", false},
 		{"", "http://app", nil, "run", false},
 		{"", "10.0.0.1", cr, "host", false},
+		{"", "10.0.0.1:22", cr, "host", false},
 		{"", "", nil, "", true},
 	}
 	for _, tc := range tests {
@@ -60,6 +61,33 @@ func TestIsHostTarget(t *testing.T) {
 	}
 	if isHostTarget("10.0.0.1", nil) {
 		t.Fatal("no creds should not be host")
+	}
+}
+
+func TestValidHostIdentifierAdversarial(t *testing.T) {
+	cases := map[string]bool{
+		"":                false,
+		"10.0.0.1":        true,
+		"::1":             true,
+		"127.0.0.1:80":    true,
+		"dc01.corp.local": true,
+		";":               false,
+		"$(whoami)":       false,
+		"/etc/passwd":     false,
+		"-flag":           false,
+		"host;rm":         false,
+	}
+	for in, want := range cases {
+		if got := validHostIdentifier(in); got != want {
+			t.Errorf("validHostIdentifier(%q) = %v want %v", in, got, want)
+		}
+	}
+}
+
+func TestIsHostTargetRejectsGarbage(t *testing.T) {
+	cr := &creds.Creds{SSH: &creds.Ssh{Host: "10.0.0.1", User: "u", Password: "p"}}
+	if isHostTarget("$(whoami)", cr) {
+		t.Fatal("shell injection string should not be host")
 	}
 }
 

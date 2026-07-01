@@ -18,7 +18,7 @@ func ApplyCreds(ctx context.Context, cfg *types.RunConfig, path string) error {
 	cr := creds.Load(path)
 	if cr == nil {
 		fmt.Fprintf(os.Stderr, "  [!] no usable credentials in %s\n", path)
-		return nil
+		return fmt.Errorf("creds file %s contains no usable auth blocks", path)
 	}
 	fmt.Fprintf(os.Stderr, "  [*] loaded credentials from %s\n", path)
 

@@ -2,6 +2,7 @@ package integrations
 
 import (
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,6 +36,13 @@ func DefaultGitlabCfg() GitlabCfg {
 type Integrations struct {
 	Github GithubCfg `json:"github"`
 	Gitlab GitlabCfg `json:"gitlab"`
+}
+
+// CloneAuth holds a clean clone URL plus credentials passed via GIT_ASKPASS (not argv).
+type CloneAuth struct {
+	URL      string
+	Username string
+	Password string
 }
 
 // Load reads integrations.json from dir, or returns defaults if missing/invalid.
@@ -74,23 +82,49 @@ func env(name string) string {
 func (ig Integrations) githubToken() string { return env(ig.Github.TokenEnv) }
 func (ig Integrations) gitlabToken() string { return env(ig.Gitlab.TokenEnv) }
 
-// AuthedCloneURL injects a token into an https git URL for private repo clone.
-func (ig Integrations) AuthedCloneURL(url string) string {
+// CloneAuth returns a clean HTTPS URL and credentials for private clone (no token in URL).
+func (ig Integrations) CloneAuth(repoURL string) CloneAuth {
+	out := CloneAuth{URL: repoURL}
 	if ig.Github.Enabled {
-		if rest, ok := strings.CutPrefix(url, "https://github.com/"); ok {
+		if rest, ok := strings.CutPrefix(repoURL, "https://github.com/"); ok {
 			if tok := ig.githubToken(); tok != "" {
-				return "https://x-access-token:" + tok + "@github.com/" + rest
+				out.URL = "https://github.com/" + rest
+				out.Username = "x-access-token"
+				out.Password = tok
+				return out
 			}
 		}
 	}
 	if ig.Gitlab.Enabled {
-		host := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(ig.Gitlab.Base, "https://"), "http://"), "/")
-		prefix := "https://" + host + "/"
-		if rest, ok := strings.CutPrefix(url, prefix); ok {
-			if tok := ig.gitlabToken(); tok != "" {
-				return "https://oauth2:" + tok + "@" + host + "/" + rest
+		if host, ok := validatedGitlabHost(ig.Gitlab.Base); ok {
+			prefix := "https://" + host + "/"
+			if rest, ok := strings.CutPrefix(repoURL, prefix); ok {
+				if tok := ig.gitlabToken(); tok != "" {
+					out.URL = prefix + rest
+					out.Username = "oauth2"
+					out.Password = tok
+					return out
+				}
 			}
 		}
 	}
-	return url
+	return out
+}
+
+func validatedGitlabHost(base string) (string, bool) {
+	u, err := url.Parse(strings.TrimSpace(base))
+	if err != nil || u.Host == "" {
+		return "", false
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return "", false
+	}
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return "", false
+	}
+	path := strings.Trim(u.Path, "/")
+	if path != "" {
+		return "", false
+	}
+	return u.Host, true
 }

@@ -3,38 +3,53 @@ package integrations
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestAuthedCloneURLGitHub(t *testing.T) {
+func TestCloneAuthGitHub(t *testing.T) {
 	ig := Integrations{
 		Github: GithubCfg{Enabled: true, TokenEnv: "TEST_GH_TOKEN"},
 	}
 	t.Setenv("TEST_GH_TOKEN", "secret")
-	got := ig.AuthedCloneURL("https://github.com/acme/repo")
-	want := "https://x-access-token:secret@github.com/acme/repo"
-	if got != want {
-		t.Fatalf("got %q want %q", got, want)
+	auth := ig.CloneAuth("https://github.com/acme/repo")
+	if auth.URL != "https://github.com/acme/repo" {
+		t.Fatalf("url = %q", auth.URL)
+	}
+	if auth.Username != "x-access-token" || auth.Password != "secret" {
+		t.Fatalf("auth = %+v", auth)
+	}
+	if strings.Contains(auth.URL, "secret") {
+		t.Fatal("token must not appear in URL")
 	}
 }
 
-func TestAuthedCloneURLDisabled(t *testing.T) {
+func TestCloneAuthDisabled(t *testing.T) {
 	ig := Integrations{}
 	url := "https://github.com/acme/repo"
-	if ig.AuthedCloneURL(url) != url {
-		t.Fatal("expected passthrough when disabled")
+	auth := ig.CloneAuth(url)
+	if auth.URL != url || auth.Password != "" {
+		t.Fatalf("got %+v", auth)
 	}
 }
 
-func TestAuthedCloneURLGitLab(t *testing.T) {
+func TestCloneAuthGitLab(t *testing.T) {
 	ig := Integrations{
 		Gitlab: GitlabCfg{Enabled: true, TokenEnv: "TEST_GL_TOKEN", Base: "https://gitlab.com"},
 	}
 	t.Setenv("TEST_GL_TOKEN", "gltok")
-	got := ig.AuthedCloneURL("https://gitlab.com/acme/repo")
-	want := "https://oauth2:gltok@gitlab.com/acme/repo"
-	if got != want {
-		t.Fatalf("got %q want %q", got, want)
+	auth := ig.CloneAuth("https://gitlab.com/acme/repo")
+	if auth.URL != "https://gitlab.com/acme/repo" || auth.Password != "gltok" {
+		t.Fatalf("got %+v", auth)
+	}
+}
+
+func TestValidatedGitlabHostRejectsRedirect(t *testing.T) {
+	if _, ok := validatedGitlabHost("https://gitlab.com/redirect?to=evil"); ok {
+		t.Fatal("path/query base should be rejected")
+	}
+	if _, ok := validatedGitlabHost("https://gitlab.com#@evil"); ok {
+		t.Fatal("fragment base should be rejected")
 	}
 }
 

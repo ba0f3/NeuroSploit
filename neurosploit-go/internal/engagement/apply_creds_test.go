@@ -55,3 +55,26 @@ func TestApplyCredsEmptyPath(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestApplyCredsMissingFile(t *testing.T) {
+	cfg := types.NewRunConfig("http://x")
+	err := ApplyCreds(context.Background(), &cfg, "/nonexistent/creds.yaml")
+	if err == nil {
+		t.Fatal("expected error for missing creds file")
+	}
+	if cfg.Auth != nil {
+		t.Fatal("auth should remain unset")
+	}
+}
+
+func TestApplyCredsMalformedYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.yaml")
+	if err := os.WriteFile(path, []byte(": : :\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := types.NewRunConfig("http://x")
+	if err := ApplyCreds(context.Background(), &cfg, path); err == nil {
+		t.Fatal("expected error for unusable creds")
+	}
+}
