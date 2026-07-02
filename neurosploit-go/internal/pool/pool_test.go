@@ -3,6 +3,8 @@ package pool
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -84,6 +86,8 @@ func TestCompleteSuccess(t *testing.T) {
 		models.ModelRefParse("anthropic:claude-opus-4-8"),
 	}, 1)
 	pool.Client = fakeClient{}
+	dir := t.TempDir()
+	pool.AILog = &models.AILogger{Path: filepath.Join(dir, "ai.log")}
 	m, text, err := pool.Complete("test", TaskDefault, "sys", "user")
 	if err != nil {
 		t.Fatalf("Complete failed: %v", err)
@@ -93,6 +97,10 @@ func TestCompleteSuccess(t *testing.T) {
 	}
 	if m.Provider != "anthropic" {
 		t.Errorf("unexpected model: %+v", m)
+	}
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 1 || entries[0].Name() != "ai.log" {
+		t.Fatalf("expected single ai.log, got %v", entries)
 	}
 }
 

@@ -45,7 +45,15 @@ func persist(cfg types.RunConfig, recon, transcript, toolLog string, findings []
 	put("findings.md", findingsMD(cfg.Target, findings))
 	put("report.html", report.HTML(cfg.Target, findings))
 	put("status.json", `{"status":"complete"}`)
+	if aiLog := filepath.Join(dir, "ai.log"); fileExists(aiLog) {
+		written = append(written, aiLog)
+	}
 	return written
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func findingsMD(target string, findings []types.Finding) string {

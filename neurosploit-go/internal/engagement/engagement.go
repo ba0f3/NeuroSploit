@@ -63,6 +63,7 @@ func BuildPool(cfg types.RunConfig, mcp bool, workdir, base string) *pool.ModelP
 		client.CursorWorkspace = base
 	}
 	client.CLIToolLog = &models.CLIToolLogger{Dir: filepath.Join(workdir, "tools")}
+	p.AILog = &models.AILogger{Path: filepath.Join(workdir, "ai.log")}
 	p.Client = client
 	p.CLITimeout = pool.ResolveCLITimeout(cfg)
 	return p

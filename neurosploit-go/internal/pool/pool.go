@@ -51,6 +51,7 @@ type ModelPool struct {
 	ToolRegistry *tools.Registry
 	ToolExecutor tools.Executor
 	SkillLibrary *skills.Library
+	AILog        *models.AILogger
 
 	cancel   atomic.Bool
 	soft     atomic.Bool
@@ -176,10 +177,40 @@ func (p *ModelPool) One(label string, m models.ModelRef, system, user string) (s
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), p.callTimeout(m))
 	defer cancel()
-	if p.Subscription || models.ImpliesSubscription(m.Provider) {
-		return p.Client.ChatCLI(ctx, label, m.Provider, m.Model, system, user, p.MCPConfig, p.Progress)
+	subscription := p.Subscription || models.ImpliesSubscription(m.Provider)
+	channel := "api"
+	if subscription {
+		channel = "subscription"
 	}
-	return p.Client.Chat(ctx, m, system, user)
+	var text string
+	var err error
+	if subscription {
+		text, err = p.Client.ChatCLI(ctx, label, m.Provider, m.Model, system, user, p.MCPConfig, p.Progress)
+	} else {
+		text, err = p.Client.Chat(ctx, m, system, user)
+	}
+	p.logAI(label, channel, m.Label(), system, user, "", text, err)
+	return text, err
+}
+
+func (p *ModelPool) logAI(label, channel, model, system, user, tools, output string, err error) {
+	if p.AILog == nil {
+		return
+	}
+	errStr := ""
+	if err != nil {
+		errStr = err.Error()
+	}
+	p.AILog.Record(models.AICallRecord{
+		Label:   label,
+		Channel: channel,
+		Model:   model,
+		System:  system,
+		User:    user,
+		Tools:   tools,
+		Output:  output,
+		Err:     errStr,
+	})
 }
 
 func (p *ModelPool) callTimeout(m models.ModelRef) time.Duration {
@@ -286,10 +317,21 @@ func (p *ModelPool) CompleteMessagesWithTools(label string, task Task, messages 
 func (p *ModelPool) oneWithTools(label string, m models.ModelRef, system, user string, tools []map[string]any) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), p.callTimeout(m))
 	defer cancel()
-	if p.Subscription || models.ImpliesSubscription(m.Provider) {
-		return p.Client.ChatCLI(ctx, label, m.Provider, m.Model, system, user, p.MCPConfig, p.Progress)
+	subscription := p.Subscription || models.ImpliesSubscription(m.Provider)
+	channel := "api"
+	if subscription {
+		channel = "subscription"
 	}
-	return p.Client.ChatWithTools(ctx, m, system, user, tools)
+	toolsSummary := models.ToolsSummary(tools)
+	var text string
+	var err error
+	if subscription {
+		text, err = p.Client.ChatCLI(ctx, label, m.Provider, m.Model, system, user, p.MCPConfig, p.Progress)
+	} else {
+		text, err = p.Client.ChatWithTools(ctx, m, system, user, tools)
+	}
+	p.logAI(label, channel, m.Label(), system, user, toolsSummary, text, err)
+	return text, err
 }
 func (p *ModelPool) ONE(label string, m models.ModelRef, system, user string) (string, error) {
 	return p.One(label, m, system, user)
