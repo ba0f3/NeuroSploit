@@ -38,6 +38,11 @@ func (s stubPool) Complete(label string, task pool.Task, system, user string) (m
 
 func (s stubPool) Vote(system, user string, n int, skip string) (int, int) { return n, n }
 
+func (s stubPool) VoteDetailed(system, user string, n int, skip string) (int, int, []pool.VoteDetail) {
+	yes, total := s.Vote(system, user, n, skip)
+	return yes, total, nil
+}
+
 func (s stubPool) StopExploiting() bool { return false }
 
 func (s stubPool) Tools() *tools.Registry   { return nil }
@@ -45,6 +50,33 @@ func (s stubPool) Executor() tools.Executor { return nil }
 func (s stubPool) Skills() *skills.Library  { return nil }
 func (s stubPool) CompleteWithTools(label string, task pool.Task, system, user string, tools []map[string]any) (models.ModelRef, string, error) {
 	return s.Complete(label, task, system, user)
+}
+
+func TestSQLMapHarnessArgsValidate(t *testing.T) {
+	root := findRepoRoot(t)
+	reg, err := tools.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool, ok := reg.Get("sqlmap")
+	if !ok {
+		t.Fatal("sqlmap tool missing")
+	}
+	args := sqlmapHarnessArgs("http://example.com/Comments.aspx?id=1")
+	res := tools.ValidateCall(tool, args, "http://example.com")
+	if !res.Runnable {
+		t.Fatalf("harness args not runnable: %+v", res.Issues)
+	}
+	cmd, err := tools.BuildCommand(tool, res.Args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(cmd, " ")
+	for _, flag := range []string{"--batch", "--flush-session", "--fresh-queries"} {
+		if !strings.Contains(joined, flag) {
+			t.Fatalf("command missing %s: %s", flag, joined)
+		}
+	}
 }
 
 func findRepoRoot(t *testing.T) string {

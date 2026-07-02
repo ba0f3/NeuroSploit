@@ -62,8 +62,8 @@ func RunPlaybook(ctx context.Context, cfg types.RunConfig, lib agents.Library, p
 		recon = fmt.Sprintf("%v", v)
 	}
 	sendProgress(progress, fmt.Sprintf("playbook produced %d candidate finding(s) — validating", len(candidates)))
-	findings := validate(dedupFindings(candidates), p, voteSys, cfg.VoteN, progress)
-	chained := runChainEngine(ctx, cfg, p, recon, findings, lib.Chains, progress, mcpEnabled(p))
+	findings, voteRecords := validate(dedupFindings(candidates), p, voteSys, cfg.VoteN, progress)
+	chained := runChainEngine(ctx, cfg, p, recon, findings, lib.Chains, progress, mcpEnabled(p), &voteRecords)
 	findings = append(findings, chained...)
 	findings = dedupFindings(findings)
 	findings = refutePass(findings, p, cfg.VoteN, progress)
@@ -72,7 +72,7 @@ func RunPlaybook(ctx context.Context, cfg types.RunConfig, lib agents.Library, p
 		rlState = rl.Load(*cfg.RLPath)
 	}
 	_ = state
-	return finish(cfg, recon, "", "", findings, nil, &rlState, progress)
+	return finish(cfg, recon, "", "", findings, nil, &rlState, progress, voteRecords)
 }
 
 func findAgent(lib agents.Library, name string) (agents.Agent, bool) {

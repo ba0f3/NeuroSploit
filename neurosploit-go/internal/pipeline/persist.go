@@ -11,7 +11,7 @@ import (
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
 )
 
-func persist(cfg types.RunConfig, recon, transcript, toolLog string, findings []types.Finding) []string {
+func persist(cfg types.RunConfig, recon, transcript, toolLog string, findings []types.Finding, voteRecords []VoteRecord) []string {
 	if cfg.Workdir == nil {
 		return nil
 	}
@@ -45,6 +45,12 @@ func persist(cfg types.RunConfig, recon, transcript, toolLog string, findings []
 	put("findings.md", findingsMD(cfg.Target, findings))
 	put("report.html", report.HTML(cfg.Target, findings))
 	put("status.json", `{"status":"complete"}`)
+	if cfg.Workdir != nil {
+		if votesPath := persistVotes(*cfg.Workdir, voteRecords); votesPath != "" {
+			written = append(written, votesPath)
+			written = append(written, filepath.Join(*cfg.Workdir, "votes.md"))
+		}
+	}
 	if aiLog := filepath.Join(dir, "ai.log"); fileExists(aiLog) {
 		written = append(written, aiLog)
 	}

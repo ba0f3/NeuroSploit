@@ -7,13 +7,6 @@ import (
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
 )
 
-func TestParseStringArray(t *testing.T) {
-	got := parseStringArray(`Here are agents: ["sqli_error", "xss_reflected"] done`)
-	if len(got) != 2 || got[0] != "sqli_error" {
-		t.Fatalf("got %v", got)
-	}
-}
-
 func TestExtractFindings(t *testing.T) {
 	text := `[{"title":"SQLi","severity":"critical","cwe":"CWE-89","endpoint":"/x","evidence":"HTTP/1.1 200","confidence":0.9}]`
 	got := extractFindings(text, "sqli_error")
@@ -22,6 +15,27 @@ func TestExtractFindings(t *testing.T) {
 	}
 	if got[0].Severity != "Critical" || got[0].Title != "SQLi" {
 		t.Fatalf("got %+v", got[0])
+	}
+}
+
+func TestExtractFindingsFromAPIEnvelope(t *testing.T) {
+	envelope := `{"id":"gen-1","choices":[{"message":{"content":"[{\"title\":\"Blind SQLi\",\"severity\":\"critical\",\"cwe\":\"CWE-89\",\"endpoint\":\"http://example.com/Comments.aspx\",\"evidence\":\"Parameter: id (GET)\\nType: boolean-based blind\",\"payload\":\"1 AND 1=1\",\"confidence\":0.95}]"}}]}`
+	got := extractFindings(envelope, "sqli_error")
+	if len(got) != 1 {
+		t.Fatalf("expected 1 finding from API envelope, got %d", len(got))
+	}
+	if got[0].Title != "Blind SQLi" {
+		t.Fatalf("got %+v", got[0])
+	}
+	if !strings.Contains(got[0].Evidence, "Parameter: id") {
+		t.Fatalf("evidence=%q", got[0].Evidence)
+	}
+}
+
+func TestParseStringArray(t *testing.T) {
+	got := parseStringArray(`Here are agents: ["sqli_error", "xss_reflected"] done`)
+	if len(got) != 2 || got[0] != "sqli_error" {
+		t.Fatalf("got %v", got)
 	}
 }
 

@@ -67,3 +67,47 @@ func QuorumConfirmed(severity string, yes, total int) bool {
 	}
 	return yes*2 > total
 }
+
+// QuorumConfirmedToolVerified applies a lower bar when sqlmap proof + log path are present.
+func QuorumConfirmedToolVerified(severity string, yes, total int) bool {
+	if total == 0 {
+		return false
+	}
+	s := strings.ToLower(severity)
+	if strings.HasPrefix(s, "crit") {
+		return yes >= 1
+	}
+	return QuorumConfirmed(severity, yes, total)
+}
+
+// VoteDetail is one validator model's parsed verdict.
+type VoteDetail struct {
+	Model   string
+	Verdict string
+	Reason  string
+}
+
+func VerdictLabel(v Verdict) string {
+	switch v {
+	case VerdictConfirmed:
+		return "confirmed"
+	case VerdictRejected:
+		return "rejected"
+	default:
+		return "unclear"
+	}
+}
+
+// ExtractVoteReason pulls a short reason string from validator JSON when present.
+func ExtractVoteReason(text string) string {
+	lower := strings.ToLower(text)
+	for _, key := range []string{`"reason":"`, `"reason": "`} {
+		if i := strings.Index(lower, key); i >= 0 {
+			rest := text[i+len(key):]
+			if j := strings.Index(rest, `"`); j > 0 {
+				return strings.TrimSpace(rest[:j])
+			}
+		}
+	}
+	return ""
+}

@@ -539,6 +539,11 @@ func (offlineStubPool) Vote(system, user string, n int, skip string) (int, int) 
 	return n, n
 }
 
+func (offlineStubPool) VoteDetailed(system, user string, n int, skip string) (int, int, []pool.VoteDetail) {
+	yes, total := offlineStubPool{}.Vote(system, user, n, skip)
+	return yes, total, nil
+}
+
 func (offlineStubPool) StopExploiting() bool { return false }
 
 func (offlineStubPool) Tools() *tools.Registry   { return nil }

@@ -44,6 +44,7 @@ type PoolCaller interface {
 	Complete(label string, task pool.Task, system, user string) (models.ModelRef, string, error)
 	CompleteWithTools(label string, task pool.Task, system, user string, tools []map[string]any) (models.ModelRef, string, error)
 	Vote(system, user string, n int, skip string) (confirmed, total int)
+	VoteDetailed(system, user string, n int, skip string) (confirmed, total int, details []pool.VoteDetail)
 	StopExploiting() bool
 	Tools() *tools.Registry
 	Executor() tools.Executor
@@ -80,7 +81,7 @@ func Run(ctx context.Context, cfg types.RunConfig, lib agents.Library, p PoolCal
 		selected := takeAgents(ranked, cap)
 		sendProgress(progress, fmt.Sprintf("selected %d specialist agents (RL-ranked)", len(selected)))
 		sendProgress(progress, "offline: no exploitation performed (provide API keys or subscription CLI models to run live)")
-		artifacts := persist(cfg, recon, "", toolLog, nil)
+		artifacts := persist(cfg, recon, "", toolLog, nil, nil)
 		return buildOutput(cfg, recon, nil, selected, 0, artifacts)
 	}
 
@@ -105,12 +106,12 @@ func Run(ctx context.Context, cfg types.RunConfig, lib agents.Library, p PoolCal
 	candidates := dedupFindings(flattenFindings(raw))
 	sendProgress(progress, fmt.Sprintf("%d candidate finding(s) (deduped) — validating by %d-model vote", len(candidates), cfg.VoteN))
 
-	findings := validate(candidates, p, voteSys, cfg.VoteN, progress)
-	chained := runChainEngine(ctx, cfg, p, recon, findings, lib.Chains, progress, mcpOn)
+	findings, voteRecords := validate(candidates, p, voteSys, cfg.VoteN, progress)
+	chained := runChainEngine(ctx, cfg, p, recon, findings, lib.Chains, progress, mcpOn, &voteRecords)
 	findings = append(findings, chained...)
 	findings = dedupFindings(findings)
 	findings = refutePass(findings, p, cfg.VoteN, progress)
-	return finish(cfg, recon, transcript, toolLog, findings, selected, &rlState, progress)
+	return finish(cfg, recon, transcript, toolLog, findings, selected, &rlState, progress, voteRecords)
 }
 
 func selectTools(reg *tools.Registry, mode string, requested []string) []tools.Tool {
@@ -148,6 +149,50 @@ func defaultExploitTools(reg *tools.Registry, requested []string) []tools.Tool {
 		return []tools.Tool{t}
 	}
 	return nil
+}
+
+func exploitToolList(reg *tools.Registry, ag agents.Agent) []tools.Tool {
+	if strings.HasPrefix(ag.Name, "sqli_") {
+		return sqliToolList(reg, ag.Tools)
+	}
+	return defaultExploitTools(reg, ag.Tools)
+}
+
+func sqliToolList(reg *tools.Registry, requested []string) []tools.Tool {
+	if reg == nil {
+		return nil
+	}
+	names := requested
+	if len(names) == 0 {
+		names = []string{"sqlmap", "curl"}
+	}
+	ordered := []string{"sqlmap", "curl"}
+	var out []tools.Tool
+	seen := map[string]bool{}
+	for _, want := range ordered {
+		for _, n := range names {
+			if n != want {
+				continue
+			}
+			if t, ok := reg.Get(n); ok && !seen[n] {
+				out = append(out, t)
+				seen[n] = true
+			}
+		}
+	}
+	for _, n := range names {
+		if seen[n] {
+			continue
+		}
+		if t, ok := reg.Get(n); ok {
+			out = append(out, t)
+			seen[n] = true
+		}
+	}
+	if len(out) == 0 {
+		return defaultExploitTools(reg, requested)
+	}
+	return out
 }
 
 func injectSkills(p PoolCaller, ag agents.Agent, system string, cfg types.RunConfig) string {
@@ -192,10 +237,11 @@ func runWithToolLoop(ctx context.Context, p PoolCaller, label string, task pool.
 		return text, err
 	})
 	loop := &toolloop.Loop{
-		Caller:   caller,
-		Executor: p.Executor(),
-		MaxIter:  maxIter,
-		Progress: progress,
+		Caller:    caller,
+		Executor:  p.Executor(),
+		MaxIter:   maxIter,
+		AgentName: label,
+		Progress:  progress,
 	}
 	sendProgress(progress, fmt.Sprintf("toolloop enabled for %s with tools: %s (max %d iter)", label, toolNames(toolList), maxIter))
 	return loop.Run(ctx, system, user, toolList)
@@ -340,21 +386,25 @@ func (b exploitUserBuilder) build(ag agents.Agent, recon string) string {
 		"target":     b.target,
 		"recon_json": recon,
 	})
+	directives := b.directives
+	if strings.HasPrefix(ag.Name, "sqli_") {
+		directives += sqliDoctrine
+	}
 	if b.host {
 		return fmt.Sprintf(
 			"AUTHORIZED host engagement on %s. Proceed and PROVE each issue with raw tool output.\n\n%s%s%s%s%s%s\n\n%s",
-			b.target, b.directives, hostTooling, reactDoctrine, evidenceDoctrine, severityDoctrine, body, outputSchemaDoctrine,
+			b.target, directives, hostTooling, reactDoctrine, evidenceDoctrine, severityDoctrine, body, outputSchemaDoctrine,
 		)
 	}
 	if b.greybox {
 		return fmt.Sprintf(
 			"AUTHORIZED greybox engagement on %s — you also have the source review below. Proceed and PROVE each issue against the LIVE app.\n\n%s%s%s%s%s%s%s\n\n%s",
-			b.target, b.directives, b.leads, reactDoctrine, depthDoctrine, evidenceDoctrine, toolDoctrine(b.mcpOn), body, outputSchemaDoctrine,
+			b.target, directives, b.leads, reactDoctrine, depthDoctrine, evidenceDoctrine, toolDoctrine(b.mcpOn), body, outputSchemaDoctrine,
 		)
 	}
 	return fmt.Sprintf(
 		"AUTHORIZED engagement — you have explicit permission to test %s. Do not ask for confirmation — proceed and PROVE each issue.\n\n%s%s%s%s%s%s%s\n\n%s",
-		b.target, b.directives, reactDoctrine, depthDoctrine, evidenceDoctrine, severityDoctrine, toolDoctrine(b.mcpOn), body, outputSchemaDoctrine,
+		b.target, directives, reactDoctrine, depthDoctrine, evidenceDoctrine, severityDoctrine, toolDoctrine(b.mcpOn), body, outputSchemaDoctrine,
 	)
 }
 
@@ -392,12 +442,37 @@ func parallelExploit(ctx context.Context, cfg types.RunConfig, selected []agents
 			}
 			var m models.ModelRef
 			var text string
+			var findings []types.Finding
 			var err error
-			toolList := defaultExploitTools(p.Tools(), ag.Tools)
-			if (cfg.AutoTools || len(ag.Tools) > 0 || len(toolList) > 0) && p.Tools() != nil && p.Executor() != nil {
-				text, _, err = runWithToolLoop(ctx, p, ag.Name, pool.TaskExploit, system, user, toolList, progress, cfg.ToolLoopMaxIter)
-			} else {
-				m, text, err = p.Complete(ag.Name, pool.TaskExploit, system, user)
+			preflightRan := false
+			skipLoop := false
+
+			if strings.HasPrefix(ag.Name, "sqli_") {
+				pfFindings, pfText, skip := sqliPreflight(ctx, p, ag, recon, cfg.Target, progress)
+				preflightRan = true
+				findings = append(findings, pfFindings...)
+				text = pfText
+				skipLoop = skip
+			}
+
+			if !skipLoop {
+				toolList := exploitToolList(p.Tools(), ag)
+				maxIter := cfg.ToolLoopMaxIter
+				if strings.HasPrefix(ag.Name, "sqli_") && (maxIter <= 0 || maxIter > sqliToolLoopMaxIter) {
+					maxIter = sqliToolLoopMaxIter
+				}
+				var loopText string
+				if (cfg.AutoTools || len(ag.Tools) > 0 || len(toolList) > 0) && p.Tools() != nil && p.Executor() != nil {
+					loopText, _, err = runWithToolLoop(ctx, p, ag.Name, pool.TaskExploit, system, user, toolList, progress, maxIter)
+				} else {
+					m, loopText, err = p.Complete(ag.Name, pool.TaskExploit, system, user)
+				}
+				if text != "" && loopText != "" {
+					text = text + "\n\n" + loopText
+				} else if loopText != "" {
+					text = loopText
+				}
+				findings = append(findings, extractFindings(loopText, ag.Name)...)
 			}
 			verb := "exploit"
 			if builder.host {
@@ -408,8 +483,8 @@ func parallelExploit(ctx context.Context, cfg types.RunConfig, selected []agents
 				results[i] = exploitResult{name: ag.Name, text: fmt.Sprintf("ERROR: %v", err)}
 				return nil
 			}
-			f := extractFindings(text, ag.Name)
-			text, f = followupExploit(ctx, p, ag, text, f, recon, cfg.Target, progress)
+			f := findings
+			text, f = followupExploit(ctx, p, ag, text, f, recon, cfg.Target, progress, preflightRan)
 			sendProgress(progress, fmt.Sprintf("%s %s via %s → %d candidate(s)", verb, ag.Name, m.Label(), len(f)))
 			for _, c := range f {
 				sendProgress(progress, fmt.Sprintf("finding: [%s] %s @ %s", c.Severity, c.Title, c.Endpoint))
@@ -425,7 +500,7 @@ func parallelExploit(ctx context.Context, cfg types.RunConfig, selected []agents
 	return results
 }
 
-func runChainEngine(ctx context.Context, cfg types.RunConfig, p PoolCaller, recon string, confirmed []types.Finding, chains []agents.Agent, progress chan<- string, mcpOn bool) []types.Finding {
+func runChainEngine(ctx context.Context, cfg types.RunConfig, p PoolCaller, recon string, confirmed []types.Finding, chains []agents.Agent, progress chan<- string, mcpOn bool, voteRecords *[]VoteRecord) []types.Finding {
 	doctrine := reactDoctrine + depthDoctrine + toolDoctrine(mcpOn)
 	caller := &chainSeedCaller{
 		pool:       p,
@@ -450,7 +525,11 @@ func runChainEngine(ctx context.Context, cfg types.RunConfig, p PoolCaller, reco
 		ChainSystem: chainSys,
 		Doctrine:    doctrine,
 		Validate: func(candidates []types.Finding) []types.Finding {
-			return validate(candidates, p, voteSys, cfg.VoteN, progress)
+			validated, records := validate(candidates, p, voteSys, cfg.VoteN, progress)
+			if voteRecords != nil {
+				*voteRecords = append(*voteRecords, records...)
+			}
+			return validated
 		},
 		FindingKey:   FindingKey,
 		ExtractChain: ExtractChain,
@@ -523,11 +602,13 @@ func (c *chainSeedCaller) ChainFromSeed(ctx context.Context, seed types.Finding,
 	return findings, newLoot, nil
 }
 
-func validate(candidates []types.Finding, p PoolCaller, sys string, voteN int, progress chan<- string) []types.Finding {
+func validate(candidates []types.Finding, p PoolCaller, sys string, voteN int, progress chan<- string) ([]types.Finding, []VoteRecord) {
 	finder := primaryModelLabel(p)
 	concurrency := validateConcurrency(p)
 	sem := make(chan struct{}, concurrency)
 	validated := make([]types.Finding, len(candidates))
+	records := make([]VoteRecord, 0, len(candidates)*voteN)
+	var mu sync.Mutex
 	var wg sync.WaitGroup
 	for i, c := range candidates {
 		wg.Add(1)
@@ -536,9 +617,13 @@ func validate(candidates []types.Finding, p PoolCaller, sys string, voteN int, p
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			q := fmt.Sprintf("Finding: %s | severity %s | %s | at %s | payload %s | evidence %s | impact %s",
-				f.Title, f.Severity, f.CWE, f.Endpoint, f.Payload, f.Evidence, f.Impact)
-			yes, total := p.Vote(sys, q, voteN, finder)
-			f.Validated = pool.QuorumConfirmed(f.Severity, yes, total)
+				f.Title, f.Severity, f.CWE, f.Endpoint, f.Payload, evidenceForVote(f), f.Impact)
+			yes, total, details := p.VoteDetailed(sys, q, voteN, finder)
+			if sqlmapProofVerified(f.Evidence) {
+				f.Validated = pool.QuorumConfirmedToolVerified(f.Severity, yes, total)
+			} else {
+				f.Validated = pool.QuorumConfirmed(f.Severity, yes, total)
+			}
 			f.Votes = fmt.Sprintf("%d/%d", yes, total)
 			if f.Confidence == 0 && total > 0 {
 				f.Confidence = float64(yes) / float64(total)
@@ -552,6 +637,18 @@ func validate(candidates []types.Finding, p PoolCaller, sys string, voteN int, p
 			if total > 0 {
 				sendProgress(progress, fmt.Sprintf("vote %s → %s (%s)", f.Title, verdict, f.Votes))
 			}
+			for _, d := range details {
+				sendProgress(progress, fmt.Sprintf("vote %s — %s: %s%s", f.Title, d.Model, d.Verdict, voteReasonSuffix(d.Reason)))
+				mu.Lock()
+				records = append(records, VoteRecord{
+					FindingTitle: f.Title,
+					Endpoint:     f.Endpoint,
+					Model:        d.Model,
+					Verdict:      d.Verdict,
+					Reason:       d.Reason,
+				})
+				mu.Unlock()
+			}
 			validated[i] = f
 		}(i, c)
 	}
@@ -562,7 +659,14 @@ func validate(candidates []types.Finding, p PoolCaller, sys string, voteN int, p
 			out = append(out, f)
 		}
 	}
-	return out
+	return out, records
+}
+
+func voteReasonSuffix(reason string) string {
+	if reason == "" {
+		return ""
+	}
+	return " (" + reason + ")"
 }
 
 func refutePass(findings []types.Finding, p PoolCaller, voteN int, progress chan<- string) []types.Finding {
@@ -595,7 +699,7 @@ func refutePass(findings []types.Finding, p PoolCaller, voteN int, progress chan
 	return kept
 }
 
-func finish(cfg types.RunConfig, recon, transcript, toolLog string, findings []types.Finding, selected []agents.Agent, rlState *rl.State, progress chan<- string) RunOutput {
+func finish(cfg types.RunConfig, recon, transcript, toolLog string, findings []types.Finding, selected []agents.Agent, rlState *rl.State, progress chan<- string, voteRecords []VoteRecord) RunOutput {
 	whitebox := cfg.Repo != nil && strings.HasPrefix(cfg.Target, "/")
 	before := len(findings)
 	kept, demoted := grounding.Gate(findings, transcript, whitebox)
@@ -653,7 +757,7 @@ func finish(cfg types.RunConfig, recon, transcript, toolLog string, findings []t
 		}
 	}
 
-	artifacts := persist(cfg, recon, transcript, toolLog, findings)
+	artifacts := persist(cfg, recon, transcript, toolLog, findings, voteRecords)
 	if len(artifacts) > 0 {
 		wd := ""
 		if cfg.Workdir != nil {

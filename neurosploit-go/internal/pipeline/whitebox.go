@@ -56,7 +56,7 @@ func RunWhitebox(ctx context.Context, cfg types.RunConfig, lib agents.Library, p
 	sendProgress(progress, fmt.Sprintf("selected %d code-analysis agents", len(selected)))
 
 	if cfg.Offline || bytes == 0 {
-		artifacts := persist(cfg, "{}", context, "", nil)
+		artifacts := persist(cfg, "{}", context, "", nil, nil)
 		return buildOutput(cfg, "", nil, selected, 0, artifacts)
 	}
 
@@ -102,9 +102,9 @@ func RunWhitebox(ctx context.Context, cfg types.RunConfig, lib agents.Library, p
 	transcript := transcriptOf(results)
 	candidates := dedupFindings(flattenFindings(results))
 	sendProgress(progress, fmt.Sprintf("%d candidate finding(s) (deduped) — validating", len(candidates)))
-	findings := validate(candidates, p, codeVoteSys, cfg.VoteN, progress)
+	findings, voteRecords := validate(candidates, p, codeVoteSys, cfg.VoteN, progress)
 	findings = refutePass(findings, p, cfg.VoteN, progress)
-	return finish(cfg, "{}", transcript, "", findings, selected, &rlState, progress)
+	return finish(cfg, "{}", transcript, "", findings, selected, &rlState, progress, voteRecords)
 }
 
 // RunGreybox reviews source code and exploits the running app in one pipeline.
@@ -166,7 +166,7 @@ func RunGreybox(ctx context.Context, cfg types.RunConfig, lib agents.Library, p 
 	if cfg.Offline {
 		selected := takeAgents(ranked, cap)
 		sendProgress(progress, fmt.Sprintf("offline: selected %d agent(s); no live exploitation", len(selected)))
-		artifacts := persist(cfg, recon, codeLeads, toolLog, nil)
+		artifacts := persist(cfg, recon, codeLeads, toolLog, nil, nil)
 		return buildOutput(cfg, recon, nil, selected, 0, artifacts)
 	}
 
@@ -193,12 +193,12 @@ func RunGreybox(ctx context.Context, cfg types.RunConfig, lib agents.Library, p 
 	transcript := codeLeads + "\n" + transcriptOf(raw)
 	candidates := dedupFindings(flattenFindings(raw))
 	sendProgress(progress, fmt.Sprintf("%d candidate finding(s) (deduped) — validating", len(candidates)))
-	findings := validate(candidates, p, voteSys, cfg.VoteN, progress)
-	chained := runChainEngine(ctx, cfg, p, recon, findings, lib.Chains, progress, mcpOn)
+	findings, voteRecords := validate(candidates, p, voteSys, cfg.VoteN, progress)
+	chained := runChainEngine(ctx, cfg, p, recon, findings, lib.Chains, progress, mcpOn, &voteRecords)
 	findings = append(findings, chained...)
 	findings = dedupFindings(findings)
 	findings = refutePass(findings, p, cfg.VoteN, progress)
-	return finish(cfg, recon, transcript, toolLog, findings, selected, &rlState, progress)
+	return finish(cfg, recon, transcript, toolLog, findings, selected, &rlState, progress, voteRecords)
 }
 
 // RunHost scans and tests an infrastructure target.
@@ -223,7 +223,7 @@ func RunHost(ctx context.Context, cfg types.RunConfig, lib agents.Library, p Poo
 	if cfg.Offline {
 		selected := takeAgents(ranked, cap)
 		sendProgress(progress, fmt.Sprintf("offline: selected %d infra agent(s); no live testing", len(selected)))
-		artifacts := persist(cfg, recon, "", toolLog, nil)
+		artifacts := persist(cfg, recon, "", toolLog, nil, nil)
 		return buildOutput(cfg, recon, nil, selected, 0, artifacts)
 	}
 
@@ -250,12 +250,12 @@ func RunHost(ctx context.Context, cfg types.RunConfig, lib agents.Library, p Poo
 	transcript := transcriptOf(raw)
 	candidates := dedupFindings(flattenFindings(raw))
 	sendProgress(progress, fmt.Sprintf("%d candidate finding(s) (deduped) — validating", len(candidates)))
-	findings := validate(candidates, p, voteSys, cfg.VoteN, progress)
-	chained := runChainEngine(ctx, cfg, p, recon, findings, lib.Chains, progress, false)
+	findings, voteRecords := validate(candidates, p, voteSys, cfg.VoteN, progress)
+	chained := runChainEngine(ctx, cfg, p, recon, findings, lib.Chains, progress, false, &voteRecords)
 	findings = append(findings, chained...)
 	findings = dedupFindings(findings)
 	findings = refutePass(findings, p, cfg.VoteN, progress)
-	return finish(cfg, recon, transcript, toolLog, findings, selected, &rlState, progress)
+	return finish(cfg, recon, transcript, toolLog, findings, selected, &rlState, progress, voteRecords)
 }
 
 func runHostRecon(ctx context.Context, cfg types.RunConfig, p PoolCaller, progress chan<- string) (string, string) {

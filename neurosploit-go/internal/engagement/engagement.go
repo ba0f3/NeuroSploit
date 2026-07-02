@@ -218,6 +218,9 @@ func (w *toolAwarePool) CompleteWithTools(label string, task pool.Task, system, 
 func (w *toolAwarePool) Vote(system, user string, n int, skip string) (int, int) {
 	return w.inner.Vote(system, user, n, skip)
 }
+func (w *toolAwarePool) VoteDetailed(system, user string, n int, skip string) (int, int, []pool.VoteDetail) {
+	return w.inner.VoteDetailed(system, user, n, skip)
+}
 func (w *toolAwarePool) StopExploiting() bool     { return w.inner.StopExploiting() }
 func (w *toolAwarePool) Tools() *tools.Registry   { return w.tools }
 func (w *toolAwarePool) Executor() tools.Executor { return w.executor }

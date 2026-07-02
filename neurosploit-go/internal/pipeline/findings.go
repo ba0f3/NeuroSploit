@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/models"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
 )
 
@@ -23,6 +24,7 @@ func parseStringArray(text string) []string {
 }
 
 func extractFindings(text, agent string) []types.Finding {
+	text = models.ExtractChatContent(text)
 	slice := extractJSONSlice(text)
 	if slice == "" {
 		return nil
@@ -249,18 +251,25 @@ func parseFloat(s string) (float64, error) {
 
 func dedupFindings(v []types.Finding) []types.Finding {
 	sort.Slice(v, func(i, j int) bool {
-		return v[i].Confidence > v[j].Confidence
+		if v[i].Confidence != v[j].Confidence {
+			return v[i].Confidence > v[j].Confidence
+		}
+		return len(v[i].Evidence) > len(v[j].Evidence)
 	})
-	seen := make(map[string]bool)
-	var out []types.Finding
+	best := make(map[string]types.Finding)
 	for _, f := range v {
 		key := FindingKey(f)
-		if seen[key] {
-			continue
+		if prev, ok := best[key]; !ok || len(f.Evidence) > len(prev.Evidence) {
+			best[key] = f
 		}
-		seen[key] = true
+	}
+	out := make([]types.Finding, 0, len(best))
+	for _, f := range best {
 		out = append(out, f)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Confidence > out[j].Confidence
+	})
 	return out
 }
 

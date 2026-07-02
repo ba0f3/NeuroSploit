@@ -49,7 +49,7 @@ func TestParseSQLMapFinding(t *testing.T) {
     Type: boolean-based blind
     Title: AND boolean-based blind - WHERE or HAVING clause
     Payload: id=1 AND 1=1`
-	f := parseSQLMapFinding(out, "http://x/Comments.aspx?id=1", "sqli_error")
+	f := parseSQLMapFinding(out, "http://x/Comments.aspx?id=1", "sqli_error", "/tmp/log")
 	if f == nil {
 		t.Fatal("expected sqlmap finding")
 	}
@@ -60,7 +60,7 @@ func TestParseSQLMapFinding(t *testing.T) {
 
 func TestParseSQLMapFindingNotInjectable(t *testing.T) {
 	out := "all tested parameters do not appear to be injectable"
-	if f := parseSQLMapFinding(out, "http://x/", "sqli_error"); f != nil {
+	if f := parseSQLMapFinding(out, "http://x/", "sqli_error", ""); f != nil {
 		t.Fatalf("expected nil, got %+v", f)
 	}
 }

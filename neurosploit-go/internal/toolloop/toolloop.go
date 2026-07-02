@@ -34,6 +34,7 @@ type Loop struct {
 	MaxIter           int
 	MaxRepairAttempts int
 	MaxDuplicateSkip  int
+	AgentName         string
 	Progress          chan<- string
 }
 
@@ -118,15 +119,23 @@ func (l *Loop) Run(ctx context.Context, system, user string, toolList []tools.To
 			key := callFingerprint(call)
 			if executedFingerprints[key] >= 1 {
 				duplicateCounts[key]++
+				dupMsg := "DUPLICATE: identical call already executed; try a different URL, payload, HTTP method, or tool (e.g. sqlmap, dalfox)."
+				maxDup := l.MaxDuplicateSkip
+				if l.AgentName != "" && strings.HasPrefix(l.AgentName, "sqli_") && call.Name == "curl" {
+					if duplicateCounts[key] >= 2 {
+						dupMsg = "DUPLICATE: stop curling the same URL — run sqlmap on injectable parameters from recon instead."
+					}
+					maxDup = 3
+				}
 				dup := tools.ToolResult{
 					Name:    call.Name,
 					ID:      call.ID,
 					IsError: true,
-					Error:   "DUPLICATE: identical call already executed; try a different URL, payload, HTTP method, or tool (e.g. sqlmap, dalfox).",
+					Error:   dupMsg,
 				}
 				observations = append(observations, Observation{Call: call, Result: dup})
 				history += "\n\n" + formatObservation(call, dup)
-				if duplicateCounts[key] >= l.MaxDuplicateSkip {
+				if duplicateCounts[key] >= maxDup {
 					return l.synthesizeFinal(ctx, fullSystem, history, observations)
 				}
 				continue

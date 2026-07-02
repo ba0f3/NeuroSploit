@@ -19,11 +19,26 @@ parameters:
     default: true
     flag: --batch
     format: flag
+  - name: flush_session
+    type: bool
+    description: Flush stored session files for this target.
+    required: false
+    default: false
+    flag: --flush-session
+    format: flag
+  - name: fresh_queries
+    type: bool
+    description: Ignore stored query results and re-test.
+    required: false
+    default: false
+    flag: --fresh-queries
+    format: flag
   - name: additional_args
     type: string
     description: Extra sqlmap arguments.
     required: false
     format: positional
+    allowed_flags: [--level, --risk, --technique, --dbms, -p, --threads, --tamper]
 timeout: 15m
 install_hint: pip install sqlmap
 tags: [web, sql, exploit]

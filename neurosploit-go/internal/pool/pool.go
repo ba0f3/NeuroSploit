@@ -408,6 +408,12 @@ func (p *ModelPool) Route(task Task) []models.ModelRef {
 
 // Vote asks up to n distinct models the same yes/no validation question.
 func (p *ModelPool) Vote(system, user string, n int, skip string) (int, int) {
+	yes, total, _ := p.VoteDetailed(system, user, n, skip)
+	return yes, total
+}
+
+// VoteDetailed returns per-model verdicts alongside the quorum counts.
+func (p *ModelPool) VoteDetailed(system, user string, n int, skip string) (int, int, []VoteDetail) {
 	ordered := make([]models.ModelRef, len(p.Candidates))
 	copy(ordered, p.Candidates)
 	if len(ordered) > 1 && skip != "" {
@@ -428,15 +434,22 @@ func (p *ModelPool) Vote(system, user string, n int, skip string) (int, int) {
 	}
 	panel := ordered[:n]
 	confirmed, total := 0, 0
+	var details []VoteDetail
 	for _, m := range panel {
 		text, err := p.ONE("validate", m, system, user)
 		if err != nil {
 			continue
 		}
 		total++
-		if ParseVerdict(text) == VerdictConfirmed {
+		v := ParseVerdict(text)
+		if v == VerdictConfirmed {
 			confirmed++
 		}
+		details = append(details, VoteDetail{
+			Model:   m.Label(),
+			Verdict: VerdictLabel(v),
+			Reason:  ExtractVoteReason(text),
+		})
 	}
-	return confirmed, total
+	return confirmed, total, details
 }

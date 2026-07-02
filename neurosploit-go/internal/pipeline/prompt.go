@@ -29,6 +29,8 @@ const chainSys = "You are a post-exploitation & attack-chaining specialist. You 
 
 const evidenceDoctrine = "EVIDENCE: every finding MUST include a concrete `evidence` field — raw HTTP request/response excerpt, command stdout, or tool receipt. Claims without observable proof are leads, not findings.\n\n"
 
+const sqliDoctrine = "SQLI TOOLING: Run sqlmap on injectable URLs from recon first; use curl only for 1–2 boolean differential checks, not exhaustive URL-by-URL probing. Prefer sqlmap proof (Parameter/Type/Payload) over curl-only claims.\n\n"
+
 const severityDoctrine = "SEVERITY: Critical/High only when impact is DEMONSTRATED (data exfil, RCE, auth bypass proven). Theoretical or unproven issues → Medium/Low/Info. Never inflate.\n\n"
 
 const outputSchemaDoctrine = "OUTPUT: reply ONLY with a JSON array of findings (may be []). Each item: {id,title,severity,cwe,endpoint,payload,evidence,impact,remediation,confidence}. No prose outside the array.\n\n"
