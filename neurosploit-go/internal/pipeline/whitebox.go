@@ -171,6 +171,7 @@ func RunGreybox(ctx context.Context, cfg types.RunConfig, lib agents.Library, p 
 	}
 
 	chosen := selectAgents(p, recon, focus, ranked, progress)
+	chosen = expandSelectedAgents(chosen, recon)
 	selected := pickSelectedByName(ranked, chosen, recon, focus, cap, progress)
 	selected = dedupAgentList(selected)
 	sendProgress(progress, fmt.Sprintf("selected %d live agent(s): %s", len(selected), strings.Join(agentNames(selected), ", ")))
@@ -227,6 +228,7 @@ func RunHost(ctx context.Context, cfg types.RunConfig, lib agents.Library, p Poo
 	}
 
 	chosen := selectAgents(p, recon, focus, ranked, progress)
+	chosen = expandSelectedAgents(chosen, recon)
 	var selected []agents.Agent
 	if len(chosen) > 0 {
 		selected = pickSelectedByName(ranked, chosen, recon, focus, cap, progress)
@@ -273,7 +275,7 @@ func runHostRecon(ctx context.Context, cfg types.RunConfig, p PoolCaller, progre
 	if p.Tools() != nil && p.Executor() != nil {
 		var obs []toolloop.Observation
 		toolList := selectTools(p.Tools(), "host", nil)
-		text, obs, err = runWithToolLoop(ctx, p, "recon", pool.TaskRecon, hostReconSys, user, toolList, progress)
+		text, obs, err = runWithToolLoop(ctx, p, "recon", pool.TaskRecon, hostReconSys, user, toolList, progress, cfg.ToolLoopMaxIter)
 		toolLog = formatToolLog(obs)
 		text = finalizeReconText(text)
 	} else {

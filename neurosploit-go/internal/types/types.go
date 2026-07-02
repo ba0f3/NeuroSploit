@@ -76,6 +76,8 @@ type RunConfig struct {
 	AutoSkills   bool     `json:"auto_skills,omitempty"`
 	// ChainDepth is how many post-exploitation pivot rounds to run from confirmed findings (0 disables).
 	ChainDepth int `json:"chain_depth"`
+	// ToolLoopMaxIter caps ReAct tool-loop rounds per agent (0 = DefaultToolLoopMaxIter).
+	ToolLoopMaxIter int `json:"tool_loop_max_iter,omitempty"`
 }
 
 // NewRunConfig creates a RunConfig with default values.
@@ -86,7 +88,9 @@ func NewRunConfig(target string) RunConfig {
 		VoteN:       3,
 		Concurrency: 8,
 		AutoTools:   true,
-		Pinned:      []string{},
-		ChainDepth:  2,
+		Pinned:            []string{},
+		ChainDepth:        DefaultChainDepth,
+		ToolLoopMaxIter:   DefaultToolLoopMaxIter,
+		MaxAgents:         DefaultMaxAgents,
 	}
 }

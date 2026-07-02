@@ -41,7 +41,7 @@ func RunPlaybook(ctx context.Context, cfg types.RunConfig, lib agents.Library, p
 			var err error
 			if (cfg.AutoTools || len(ag.Tools) > 0) && p.Tools() != nil && p.Executor() != nil {
 				toolList := selectTools(p.Tools(), "exploit", ag.Tools)
-				text, _, err = runWithToolLoop(ctx, p, name, pool.TaskExploit, system, user, toolList, progress)
+				text, _, err = runWithToolLoop(ctx, p, name, pool.TaskExploit, system, user, toolList, progress, cfg.ToolLoopMaxIter)
 			} else {
 				_, text, err = p.Complete(name, pool.TaskExploit, system, user)
 			}

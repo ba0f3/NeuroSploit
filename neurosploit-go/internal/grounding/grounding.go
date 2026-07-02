@@ -22,6 +22,7 @@ var empiricalMarkers = []string{
 	"set-cookie", "location:", "content-type", "<html", "<script",
 	"server:", "x-", "alert(", "uid=", "root:", "sql", "error", "stack",
 	"callback", "oob", "collaborator", "$ ", "# ", "curl", "nmap",
+	"form", "signup", "password", "httponly", "method='post'", "tbusername",
 }
 
 // looksEmpirical reports whether the evidence looks like raw tool output.

@@ -64,8 +64,8 @@ func NewSession() *Session {
 	return &Session{
 		Models:     []string{"anthropic:claude-opus-4-8"},
 		VoteN:      3,
-		ChainDepth: 2,
-		MaxAgents:  5,
+		ChainDepth: types.DefaultChainDepth,
+		MaxAgents:  0,
 	}
 }
 
@@ -507,8 +507,8 @@ Available commands:
   /mcp               Toggle MCP
   /votes <n>         Set vote panel size
   /chain <n>         Attack-chain depth (0 disables)
-  /agents <n>|list   Cap agents or list library counts
-  /max-agents <n>    Alias for /agents <n>
+  /agents <n>|list   Cap agents (0 = all) or list library counts
+  /max-agents <n>    Alias for /agents <n> (0 = unlimited)
   /run               Start a run
   /stop              Stop current run
   /status            Show run status

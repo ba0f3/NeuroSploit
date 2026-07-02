@@ -86,6 +86,7 @@ func Run(ctx context.Context, cfg types.RunConfig, lib agents.Library, p PoolCal
 		focus = *cfg.Instructions
 	}
 	chosen := selectAgents(p, recon, focus, ranked, progress)
+	chosen = expandSelectedAgents(chosen, recon)
 	selected := pickSelectedByName(ranked, chosen, recon, focus, cap, progress)
 	selected = dedupAgentList(selected)
 	sendProgress(progress, fmt.Sprintf("intelligently selected %d agent(s) matching recon: %s",
@@ -134,6 +135,18 @@ func selectTools(reg *tools.Registry, mode string, requested []string) []tools.T
 	return out
 }
 
+// defaultExploitTools ensures web vuln agents always get at least curl for evidence gathering.
+func defaultExploitTools(reg *tools.Registry, requested []string) []tools.Tool {
+	out := selectTools(reg, "exploit", requested)
+	if len(out) > 0 || reg == nil {
+		return out
+	}
+	if t, ok := reg.Get("curl"); ok {
+		return []tools.Tool{t}
+	}
+	return nil
+}
+
 func injectSkills(p PoolCaller, ag agents.Agent, system string, cfg types.RunConfig) string {
 	names := ag.Skills
 	if cfg.AutoSkills && len(cfg.Skills) > 0 {
@@ -160,10 +173,13 @@ func injectSkills(p PoolCaller, ag agents.Agent, system string, cfg types.RunCon
 	return system + "\n\n" + strings.Join(blocks, "\n\n")
 }
 
-func runWithToolLoop(ctx context.Context, p PoolCaller, label string, task pool.Task, system, user string, toolList []tools.Tool, progress chan<- string) (string, []toolloop.Observation, error) {
+func runWithToolLoop(ctx context.Context, p PoolCaller, label string, task pool.Task, system, user string, toolList []tools.Tool, progress chan<- string, maxIter int) (string, []toolloop.Observation, error) {
 	if len(toolList) == 0 || p.Executor() == nil {
 		_, text, err := p.Complete(label, task, system, user)
 		return text, nil, err
+	}
+	if maxIter <= 0 {
+		maxIter = types.DefaultToolLoopMaxIter
 	}
 	if poolUsesSubscriptionCLI(p) && label == "recon" {
 		return runSubscriptionRecon(ctx, p, label, task, system, user, toolList, progress)
@@ -175,10 +191,10 @@ func runWithToolLoop(ctx context.Context, p PoolCaller, label string, task pool.
 	loop := &toolloop.Loop{
 		Caller:   caller,
 		Executor: p.Executor(),
-		MaxIter:  10,
+		MaxIter:  maxIter,
 		Progress: progress,
 	}
-	sendProgress(progress, fmt.Sprintf("toolloop enabled for %s with tools: %s", label, toolNames(toolList)))
+	sendProgress(progress, fmt.Sprintf("toolloop enabled for %s with tools: %s (max %d iter)", label, toolNames(toolList), maxIter))
 	return loop.Run(ctx, system, user, toolList)
 }
 
@@ -229,7 +245,7 @@ func runRecon(ctx context.Context, cfg types.RunConfig, p PoolCaller, progress c
 	if p.Tools() != nil && p.Executor() != nil {
 		var obs []toolloop.Observation
 		toolList := selectTools(p.Tools(), "recon", nil)
-		text, obs, err = runWithToolLoop(ctx, p, "recon", pool.TaskRecon, reconSys, reconUser, toolList, progress)
+		text, obs, err = runWithToolLoop(ctx, p, "recon", pool.TaskRecon, reconSys, reconUser, toolList, progress, cfg.ToolLoopMaxIter)
 		toolLog = formatToolLog(obs)
 		text = finalizeReconText(text)
 	} else {
@@ -322,9 +338,9 @@ func parallelExploit(ctx context.Context, cfg types.RunConfig, selected []agents
 			var m models.ModelRef
 			var text string
 			var err error
-			if (cfg.AutoTools || len(ag.Tools) > 0) && p.Tools() != nil && p.Executor() != nil {
-				toolList := selectTools(p.Tools(), "exploit", ag.Tools)
-				text, _, err = runWithToolLoop(ctx, p, ag.Name, pool.TaskExploit, system, user, toolList, progress)
+			toolList := defaultExploitTools(p.Tools(), ag.Tools)
+			if (cfg.AutoTools || len(ag.Tools) > 0 || len(toolList) > 0) && p.Tools() != nil && p.Executor() != nil {
+				text, _, err = runWithToolLoop(ctx, p, ag.Name, pool.TaskExploit, system, user, toolList, progress, cfg.ToolLoopMaxIter)
 			} else {
 				m, text, err = p.Complete(ag.Name, pool.TaskExploit, system, user)
 			}
@@ -338,6 +354,7 @@ func parallelExploit(ctx context.Context, cfg types.RunConfig, selected []agents
 				return nil
 			}
 			f := extractFindings(text, ag.Name)
+			text, f = followupExploit(ctx, p, ag, text, f, recon, cfg.Target, progress)
 			sendProgress(progress, fmt.Sprintf("%s %s via %s → %d candidate(s)", verb, ag.Name, m.Label(), len(f)))
 			for _, c := range f {
 				sendProgress(progress, fmt.Sprintf("finding: [%s] %s @ %s", c.Severity, c.Title, c.Endpoint))
@@ -440,7 +457,7 @@ func (c *chainSeedCaller) ChainFromSeed(ctx context.Context, seed types.Finding,
 	var err error
 	if c.cfg.AutoTools && c.pool.Tools() != nil && c.pool.Executor() != nil {
 		toolList := selectTools(c.pool.Tools(), "exploit", nil)
-		text, _, err = runWithToolLoop(ctx, c.pool, label, pool.TaskExploit, system, user, toolList, nil)
+		text, _, err = runWithToolLoop(ctx, c.pool, label, pool.TaskExploit, system, user, toolList, nil, c.cfg.ToolLoopMaxIter)
 	} else {
 		_, text, err = c.pool.Complete(label, pool.TaskExploit, system, user)
 	}

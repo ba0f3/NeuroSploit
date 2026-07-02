@@ -45,6 +45,7 @@ This document tracks the status of the `neurosploit-go` port relative to `neuros
 8. **Host recon tool-loop**: Go `RunHost` uses the tools registry for recon when available; Rust uses LLM-only recon.
 9. **REPL host mode**: Go routes to `host` when `/target` is a non-HTTP IP/hostname and `/creds` has ssh/windows blocks. Rust REPL documents this but only implements it via the `host` CLI subcommand.
 10. **v3.5.5 cloud creds**: Go `ApplyCreds` exports cloud env vars and prepends `CloudInstruction()` like Rust; inline GCP JSON written to temp file. Go-only: `ValidatePanel` preflight and `ai.log` debug logging preserved.
+11. **Probe defaults (Go)**: `max_agents=0` means unlimited (all selected agents). Default `tool_loop_max_iter=20`, `chain_depth=3`. Auto-expands sqli/xss agent variants from recon; sqlmap follow-up when sqli agents return empty; tool-loop nudges prose ReAct and empty curl bodies.
 
 ## Greybox / Host parity checklist
 

@@ -49,7 +49,7 @@ After recon it selects agents, runs them in parallel, then validates findings by
 
 func runCmd() *cobra.Command {
 	var modelsFlag []string
-	var maxAgents, voteN, chainDepth int
+	var maxAgents, voteN, chainDepth, toolLoopMaxIter int
 	var offline, mcp, autoTools, interactive, autoSkills bool
 	var credsPath, focus, playbook, skillsFlag, disableTools string
 	var verbose bool
@@ -63,11 +63,9 @@ func runCmd() *cobra.Command {
 			cfg := types.NewRunConfig(args[0])
 			cfg.Models = defaultModels(modelsFlag)
 			cfg.MaxAgents = maxAgents
-			if cfg.MaxAgents == 0 {
-				cfg.MaxAgents = 5
-			}
 			cfg.VoteN = voteN
 			cfg.ChainDepth = chainDepth
+			cfg.ToolLoopMaxIter = toolLoopMaxIter
 			cfg.Verbose = verbose
 			cfg.AutoTools = autoTools
 			cfg.Interactive = interactive
@@ -95,9 +93,10 @@ func runCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringArrayVar(&modelsFlag, "model", []string{"anthropic:claude-opus-4-8"}, "Models as provider:model")
-	cmd.Flags().IntVar(&maxAgents, "max-agents", 0, "Maximum agents to launch (0 = default 5)")
+	cmd.Flags().IntVar(&maxAgents, "max-agents", 0, "Maximum agents to launch (0 = unlimited, run all selected)")
 	cmd.Flags().IntVar(&voteN, "vote-n", 3, "Cross-model validation panel size")
-	cmd.Flags().IntVar(&chainDepth, "chain-depth", 2, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
+	cmd.Flags().IntVar(&chainDepth, "chain-depth", types.DefaultChainDepth, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
+	cmd.Flags().IntVar(&toolLoopMaxIter, "tool-loop-max-iter", types.DefaultToolLoopMaxIter, "Max ReAct tool-loop iterations per agent")
 	cmd.Flags().BoolVar(&offline, "offline", false, "Offline self-test using stubbed pool")
 	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable Playwright MCP if available")
 	cmd.Flags().StringVar(&credsPath, "creds", "", "Path to creds.yaml")
@@ -128,9 +127,6 @@ func whiteboxCmd() *cobra.Command {
 			cfg := types.NewRunConfig(args[0])
 			cfg.Models = defaultModels(modelsFlag)
 			cfg.MaxAgents = maxAgents
-			if cfg.MaxAgents == 0 {
-				cfg.MaxAgents = 3
-			}
 			cfg.VoteN = voteN
 			cfg.ChainDepth = chainDepth
 			cfg.Verbose = verbose
@@ -143,7 +139,7 @@ func whiteboxCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&modelsFlag, "model", []string{"anthropic:claude-opus-4-8"}, "Models as provider:model")
 	cmd.Flags().IntVar(&maxAgents, "max-agents", 0, "Maximum agents")
 	cmd.Flags().IntVar(&voteN, "vote-n", 2, "Cross-model validation panel size")
-	cmd.Flags().IntVar(&chainDepth, "chain-depth", 2, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
+	cmd.Flags().IntVar(&chainDepth, "chain-depth", types.DefaultChainDepth, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
 	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable MCP")
 	cmd.Flags().StringVar(&credsPath, "creds", "", "Path to creds.yaml")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
@@ -194,7 +190,7 @@ func greyboxCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&modelsFlag, "model", []string{"anthropic:claude-opus-4-8"}, "Models as provider:model")
 	cmd.Flags().IntVar(&maxAgents, "max-agents", 0, "Maximum agents to launch")
 	cmd.Flags().IntVar(&voteN, "vote-n", 3, "Cross-model validation panel size")
-	cmd.Flags().IntVar(&chainDepth, "chain-depth", 2, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
+	cmd.Flags().IntVar(&chainDepth, "chain-depth", types.DefaultChainDepth, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
 	cmd.Flags().BoolVar(&offline, "offline", false, "Offline self-test using stubbed pool")
 	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable Playwright MCP if available")
 	cmd.Flags().StringVar(&credsPath, "creds", "", "Path to creds.yaml")
@@ -242,7 +238,7 @@ func hostCmd() *cobra.Command {
 	cmd.Flags().StringVar(&focus, "focus", "", "Focus instructions")
 	cmd.Flags().IntVar(&maxAgents, "max-agents", 0, "Maximum infra agents to launch")
 	cmd.Flags().IntVar(&voteN, "vote-n", 3, "Cross-model validation panel size")
-	cmd.Flags().IntVar(&chainDepth, "chain-depth", 2, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
+	cmd.Flags().IntVar(&chainDepth, "chain-depth", types.DefaultChainDepth, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
 	cmd.Flags().BoolVar(&offline, "offline", false, "Offline self-test using stubbed pool")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	return cmd
@@ -271,7 +267,7 @@ func tuiCmd() *cobra.Command {
 				cfg.Repo = &repo
 			}
 			cfg.Models = defaultModels(modelsFlag)
-			cfg.MaxAgents = 5
+			cfg.MaxAgents = 0
 			cfg.VoteN = 3
 			cfg.ChainDepth = chainDepth
 			cfg.Verbose = verbose
@@ -288,7 +284,7 @@ func tuiCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repoFlag, "repo", "", "Source repo path or GitHub URL (greybox mode)")
 	cmd.Flags().StringVar(&credsPath, "creds", "", "Path to creds.yaml")
 	cmd.Flags().StringVar(&focus, "focus", "", "Focus instructions")
-	cmd.Flags().IntVar(&chainDepth, "chain-depth", 2, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
+	cmd.Flags().IntVar(&chainDepth, "chain-depth", types.DefaultChainDepth, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
 	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable MCP")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	return cmd

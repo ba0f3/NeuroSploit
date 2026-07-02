@@ -120,6 +120,12 @@ func TestNewRunConfig(t *testing.T) {
 	if cfg.Repo != nil {
 		t.Errorf("Repo: want nil, got %v", *cfg.Repo)
 	}
+	if cfg.ChainDepth != types.DefaultChainDepth {
+		t.Errorf("ChainDepth: want %d, got %d", types.DefaultChainDepth, cfg.ChainDepth)
+	}
+	if cfg.ToolLoopMaxIter != types.DefaultToolLoopMaxIter {
+		t.Errorf("ToolLoopMaxIter: want %d, got %d", types.DefaultToolLoopMaxIter, cfg.ToolLoopMaxIter)
+	}
 	if !reflect.DeepEqual(cfg.Pinned, []string{}) {
 		t.Errorf("Pinned: want empty slice, got %v", cfg.Pinned)
 	}

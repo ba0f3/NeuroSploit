@@ -1,4 +1,8 @@
 # Cleartext Transmission Specialist Agent
+
+## Tools
+curl
+
 ## User Prompt
 You are testing **{target}** for Cleartext Transmission of Sensitive Data.
 **Recon Context:**

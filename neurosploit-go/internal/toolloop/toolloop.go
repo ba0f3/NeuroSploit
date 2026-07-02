@@ -33,6 +33,7 @@ type Loop struct {
 	Executor          tools.Executor
 	MaxIter           int
 	MaxRepairAttempts int
+	MaxDuplicateSkip  int
 	Progress          chan<- string
 }
 
@@ -45,13 +46,17 @@ type Observation struct {
 // Run executes the tool loop until the model returns a final answer or MaxIter is reached.
 func (l *Loop) Run(ctx context.Context, system, user string, toolList []tools.Tool) (string, []Observation, error) {
 	if l.MaxIter == 0 {
-		l.MaxIter = 10
+		l.MaxIter = 20
 	}
 	if l.MaxRepairAttempts == 0 {
 		l.MaxRepairAttempts = 2
 	}
+	if l.MaxDuplicateSkip == 0 {
+		l.MaxDuplicateSkip = 5
+	}
 	invalidCounts := map[string]int{}
 	executedFingerprints := map[string]int{}
+	duplicateCounts := map[string]int{}
 	toolsByName := map[string]tools.Tool{}
 	for _, t := range toolList {
 		toolsByName[t.Name] = t
@@ -60,6 +65,7 @@ func (l *Loop) Run(ctx context.Context, system, user string, toolList []tools.To
 	fullSystem := system + "\n\n" + toolDesc
 	history := user
 	var observations []Observation
+	proseNudges := 0
 
 	for i := 0; i < l.MaxIter; i++ {
 		l.emit(fmt.Sprintf("toolloop iteration %d", i+1))
@@ -69,9 +75,16 @@ func (l *Loop) Run(ctx context.Context, system, user string, toolList []tools.To
 		}
 		calls := parseToolCalls(response)
 		if len(calls) == 0 {
+			if len(toolList) > 0 && looksLikeProseToolAttempt(response) && proseNudges < 2 {
+				proseNudges++
+				history += "\n\nSYSTEM: Plain-text Thought/Action/curl commands are NOT executed. " +
+					"You MUST invoke tools via native tool_calls or <tool_call>{\"name\":\"...\",\"arguments\":{...}}</tool_call> JSON."
+				continue
+			}
 			l.emit(fmt.Sprintf("toolloop final answer (%d tool(s) executed)", len(observations)))
 			return response, observations, nil
 		}
+		executedThisRound := 0
 		for _, call := range calls {
 			tool, ok := toolsByName[call.Name]
 			if !ok {
@@ -104,7 +117,19 @@ func (l *Loop) Run(ctx context.Context, system, user string, toolList []tools.To
 			call.Args = validation.Args
 			key := callFingerprint(call)
 			if executedFingerprints[key] >= 1 {
-				return l.synthesizeFinal(ctx, fullSystem, history, observations)
+				duplicateCounts[key]++
+				dup := tools.ToolResult{
+					Name:    call.Name,
+					ID:      call.ID,
+					IsError: true,
+					Error:   "DUPLICATE: identical call already executed; try a different URL, payload, HTTP method, or tool (e.g. sqlmap, dalfox).",
+				}
+				observations = append(observations, Observation{Call: call, Result: dup})
+				history += "\n\n" + formatObservation(call, dup)
+				if duplicateCounts[key] >= l.MaxDuplicateSkip {
+					return l.synthesizeFinal(ctx, fullSystem, history, observations)
+				}
+				continue
 			}
 			l.emit(fmt.Sprintf("tool run: %s", call.Name))
 			callCtx := tools.ContextWithIteration(ctx, i+1)
@@ -116,6 +141,10 @@ func (l *Loop) Run(ctx context.Context, system, user string, toolList []tools.To
 			observations = append(observations, Observation{Call: call, Result: result})
 			history += "\n\n" + formatObservation(call, result)
 			executedFingerprints[key]++
+			executedThisRound++
+		}
+		if executedThisRound == 0 && len(calls) > 0 {
+			continue
 		}
 	}
 	l.emit(fmt.Sprintf("toolloop done: %d tool(s) executed", len(observations)))
@@ -206,11 +235,29 @@ func formatObservation(call tools.ToolCall, result tools.ToolResult) string {
 	if result.IsError {
 		out = result.Error
 	}
+	out = annotateToolObservation(call.Name, out)
 	// Truncate very long outputs to keep prompt size reasonable.
 	if len(out) > 8000 {
 		out = out[:8000] + "\n... [truncated]"
 	}
 	return fmt.Sprintf("OBSERVATION [tool=%s status=%s id=%s]:\n%s", call.Name, status, call.ID, out)
+}
+
+func annotateToolObservation(toolName, out string) string {
+	if toolName != "curl" {
+		return out
+	}
+	low := strings.ToLower(out)
+	if strings.Contains(low, "0      0   0      0") && strings.Count(low, "0      0") >= 3 {
+		return out + "\n\nANOMALY: response body appears empty (0 bytes). This may indicate broken input handling or a silent error — try URL-encoded payloads (e.g. %27 for quote), boolean/time-based tests, or sqlmap."
+	}
+	return out
+}
+
+var proseToolAttemptRe = regexp.MustCompile(`(?i)(Thought:|Action:|Observation:|\bcurl\s+-)`)
+
+func looksLikeProseToolAttempt(response string) bool {
+	return proseToolAttemptRe.MatchString(response)
 }
 
 func formatValidationObservation(call tools.ToolCall, validation tools.ValidationResult) string {

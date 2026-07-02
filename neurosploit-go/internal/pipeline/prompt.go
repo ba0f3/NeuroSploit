@@ -16,7 +16,7 @@ const refuteSys = "You are a skeptical senior reviewer trying to DISPROVE a repo
 
 const codeVoteSys = "You are an adversarial source-code reviewer. Decide if the reported issue is a REAL vulnerability in the provided code (reachable, exploitable, not a false positive). Reply JSON {\"verdict\":\"confirmed\"|\"rejected\",\"reason\":\"...\"}."
 
-const reactDoctrine = "METHOD (ReAct): work in explicit Thought → Action → Observation cycles. Each Action runs ONE concrete tool command (e.g. a curl request); read its real Observation before the next Thought. Base every claim on an actual observed response — never assume. Stop when you've either proven an issue or exhausted reasonable checks. Be token-efficient: no filler, no repetition.\n\n"
+const reactDoctrine = "METHOD (ReAct): work in explicit Thought → Action → Observation cycles. Each Action MUST invoke a tool via native tool_calls or <tool_call> JSON — plain-text curl/shell in prose is NOT executed. Read each real Observation before the next step. Base every claim on actual tool output — never assume. Stop only after you have proven an issue or exhausted reasonable checks including sqlmap/dalfox when curl is inconclusive.\n\n"
 
 const depthDoctrine = "DEPTH (exploit, don't just expose):\n" +
 	"- Exposed → exploited: any info-disclosure, exposed service/catalog/WSDL, leaked credential/token, or non-prod (dev/staging) host you find MUST be USED before you report it — call the exposed endpoint, decode the leaked artifact, log in with the leaked credential, hit the dev host. If you only observed it but never used it, report it as a LEAD (low confidence), not a confirmed finding.\n" +

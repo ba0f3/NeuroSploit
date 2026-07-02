@@ -206,6 +206,32 @@ func TestLoopStopsRepeatedInvalidCalls(t *testing.T) {
 	}
 }
 
+func TestLoopProseToolNudge(t *testing.T) {
+	caller := &mockCaller{responses: []string{
+		"Thought: curl the page\nAction: curl -s http://example.com",
+		`<tool_call>{"name":"curl","arguments":{"url":"http://example.com"}}</tool_call>`,
+		`[]`,
+	}}
+	exec := &mockExecutor{results: map[string]tools.ToolResult{
+		"curl": {Output: "HTTP/1.1 200 OK\n"},
+	}}
+	loop := &Loop{Caller: caller, Executor: exec, MaxIter: 5}
+	final, obs, err := loop.Run(context.Background(), "Test.", "Probe", []tools.Tool{
+		{Name: "curl", Command: "curl", ShortDescription: "HTTP", Parameters: []tools.Parameter{
+			{Name: "url", Type: "string", Required: true, Format: "positional", Position: 0},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(obs) != 1 {
+		t.Fatalf("expected 1 observation after nudge, got %d", len(obs))
+	}
+	if final != "[]" {
+		t.Fatalf("final = %q", final)
+	}
+}
+
 func TestLoopDuplicateCallSynthesizes(t *testing.T) {
 	caller := &mockCaller{responses: []string{
 		`<tool_call>{"name":"httpx","arguments":{"target":"https://example.com"}}</tool_call>`,
@@ -213,7 +239,7 @@ func TestLoopDuplicateCallSynthesizes(t *testing.T) {
 		`{"tech":"nginx","endpoints":["/"]}`,
 	}}
 	exec := &recordingExecutor{}
-	loop := &Loop{Caller: caller, Executor: exec, MaxIter: 5}
+	loop := &Loop{Caller: caller, Executor: exec, MaxIter: 5, MaxDuplicateSkip: 1}
 	final, obs, err := loop.Run(context.Background(), "Test.", "Probe target", []tools.Tool{
 		{Name: "httpx", Command: "httpx", ShortDescription: "HTTP probe", Parameters: []tools.Parameter{
 			{Name: "target", Type: "string", Required: true, TargetFormat: "url"},
@@ -225,8 +251,11 @@ func TestLoopDuplicateCallSynthesizes(t *testing.T) {
 	if len(exec.calls) != 1 {
 		t.Fatalf("expected one executed call, got %d", len(exec.calls))
 	}
-	if len(obs) != 1 {
-		t.Fatalf("expected one observation, got %d", len(obs))
+	if len(obs) != 2 {
+		t.Fatalf("expected execute + duplicate observations, got %d", len(obs))
+	}
+	if !obs[1].Result.IsError || !strings.Contains(obs[1].Result.Error, "DUPLICATE") {
+		t.Fatalf("second observation should be duplicate skip: %+v", obs[1])
 	}
 	if !strings.Contains(final, "nginx") {
 		t.Fatalf("final = %q", final)

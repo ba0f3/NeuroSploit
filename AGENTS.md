@@ -83,9 +83,11 @@ The `Makefile` lives in `neurosploit-go/`. It syncs `agents_md/` from the repo r
 - HTTP-dependent packages (`creds`, `models`) use `httptest`.
 - Offline stub pool in `cmd/neurosploit/main_test.go` for smoke tests.
 - Test files run from repo root so agents load from disk.
+- **Never use sensitive data or real targets in tests or docs.** Use placeholders only: `example.com`, `example.org`, `localhost`, or `httptest` servers. Do not commit real hostnames, customer domains, production URLs, credentials, API keys, tokens, PII, or run artifacts that contain them. Docs, README examples, agent markdown, and comments follow the same rule.
 
 ## Avoiding common mistakes
 
+- **Don't use real targets or sensitive data in tests or documentation** — see Testing conventions above.
 - **Don't edit files in `neurosploit-rs/`** — that's upstream reference only.
 - **Don't run from inside `neurosploit-go/`** unless your cwd has a symlink to `agents_md/` — the binary walks up from cwd to find it. Run from repo root, or set `NEUROSPLOIT_BASE`.
 - **Don't add new Go dependencies** without strong justification. The dependency list is intentionally minimal (cobra, liner, bubbletea, x/sync, mvdan.cc/sh).

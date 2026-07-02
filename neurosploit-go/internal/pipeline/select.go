@@ -76,7 +76,10 @@ var reconSignals = []struct {
 	{"php", []string{"lfi", "rfi", "sqli", "command_injection"}},
 	{"template", []string{"ssti", "csti"}},
 	{"redirect", []string{"open_redirect"}},
-	{"login", []string{"auth_bypass", "brute_force", "sqli", "default_credentials"}},
+	{"login", []string{"auth_bypass", "brute_force", "sqli", "default_credentials", "cleartext"}},
+	{"comments", []string{"xss_stored", "xss_reflected", "sqli"}},
+	{"aspx", []string{"aspnet_", "sqli", "xss"}},
+	{"asp.net", []string{"aspnet_", "viewstate", "sqli"}},
 	{"search", []string{"xss", "sqli"}},
 	{"cache", []string{"cache", "smuggl"}},
 }
