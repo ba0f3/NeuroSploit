@@ -102,9 +102,6 @@ func TestNewRunConfig(t *testing.T) {
 	if cfg.Offline != false {
 		t.Errorf("Offline: want false, got %t", cfg.Offline)
 	}
-	if cfg.Subscription != false {
-		t.Errorf("Subscription: want false, got %t", cfg.Subscription)
-	}
 	if cfg.Verbose != false {
 		t.Errorf("Verbose: want false, got %t", cfg.Verbose)
 	}

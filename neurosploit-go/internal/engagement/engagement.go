@@ -44,7 +44,7 @@ func BuildPool(cfg types.RunConfig, mcp bool, workdir, base string) *pool.ModelP
 		refs = append(refs, models.ModelRefParse(s))
 	}
 	mcpConfig := ""
-	if mcp && cfg.Subscription && len(refs) > 0 && models.MCPSupported(refs[0].Provider) {
+	if mcp && models.AnyCLIModel(refs) && models.AnyMCPSupported(refs) {
 		_ = models.EnsurePlaywrightMCP(cfg.Verbose)
 		if models.UsesCursorCLI(refs) {
 			mcpConfig, _ = models.WriteCursorMCPConfig(base, "")
@@ -53,10 +53,7 @@ func BuildPool(cfg types.RunConfig, mcp bool, workdir, base string) *pool.ModelP
 		}
 	}
 	concurrency := cfg.Concurrency
-	if cfg.Subscription {
-		concurrency = models.SubscriptionConcurrency(refs, concurrency)
-	}
-	p := pool.WithAuth(refs, concurrency, cfg.Subscription, mcpConfig)
+	p := pool.WithAuth(refs, concurrency, mcpConfig)
 	client := models.NewChatClient()
 	client.Verbose = cfg.Verbose
 	if models.UsesCursorCLI(refs) {
@@ -85,7 +82,6 @@ func PrepareWorkdir(base string, cfg *types.RunConfig) (string, error) {
 // Execute runs the pipeline for the given mode and returns output.
 // progress receives live status lines; stub bypasses live model calls when non-nil.
 func Execute(ctx context.Context, base string, cfg types.RunConfig, mode string, mcp bool, stub pipeline.PoolCaller, progress chan<- string) pipeline.RunOutput {
-	cfg.Subscription = models.ApplyImpliedSubscription(cfg.Subscription, cfg.Models)
 	lib := agents.Load(base)
 	if _, err := PrepareWorkdir(base, &cfg); err != nil {
 		if progress != nil {
@@ -94,14 +90,6 @@ func Execute(ctx context.Context, base string, cfg types.RunConfig, mode string,
 		return pipeline.RunOutput{Target: cfg.Target}
 	}
 	workdir := *cfg.Workdir
-
-	if cfg.Subscription {
-		var refs []models.ModelRef
-		for _, s := range cfg.Models {
-			refs = append(refs, models.ModelRefParse(s))
-		}
-		cfg.Concurrency = models.SubscriptionConcurrency(refs, cfg.Concurrency)
-	}
 
 	var p pipeline.PoolCaller
 	if stub != nil {

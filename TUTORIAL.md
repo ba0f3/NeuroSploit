@@ -50,7 +50,7 @@ You give NeuroSploit a **target** (URL, repo, app, or host/IP). It:
    mapped to OWASP / CWE / MITRE ATT&CK.
 
 It runs on a **pool of LLMs** you choose, authenticated either by **API key** or
-your local **subscription** (Claude Code / Codex / Gemini / Grok CLI).
+your local **subscription CLIs** (`claude`, `codex`, `agy`, `grok`, `cursor`) via dedicated `--model` provider keys.
 
 ---
 
@@ -111,13 +111,12 @@ You pick **per run**. They're independent.
 
 ### A) Via API key
 
-Export the key for each provider you'll use, then run **without** `--subscription`:
+Export the key for each provider you'll use:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...      # anthropic:claude-*
 export OPENAI_API_KEY=sk-...             # openai:gpt-*
 export GEMINI_API_KEY=AIza...            # gemini:gemini-*
-export XAI_API_KEY=xai-...               # xai:grok-*
 export NVIDIA_NIM_API_KEY=nvapi-...      # nvidia_nim:*
 export DEEPSEEK_API_KEY=...              # deepseek:*
 export MISTRAL_API_KEY=...               # mistral:*
@@ -137,19 +136,20 @@ Or put them in a `.env` and source it (`cp .env.example .env`; edit; `set -a; . 
 In the REPL you can also run `/key anthropic sk-ant-...` (it lists which providers
 your selected models need).
 
-### B) Via subscription (no API key)
+### B) Via subscription CLI (no API key)
 
-Install and log into a local agentic CLI, then pass `--subscription`:
+Install and log into a local agentic CLI, then use the matching **subscription provider key**:
 
 | `--model` prefix | CLI | Login |
 |------------------|-----|-------|
-| `anthropic:` | Claude Code (`claude`) | `claude` → `/login` |
-| `openai:` | Codex (`codex`) | codex login |
-| `gemini:` | Gemini (`gemini`) | gemini login |
-| `xai:` | Grok (`grok`) | grok login |
+| `claude:` | Claude Code (`claude`) | `claude` → `/login` |
+| `codex:` | Codex (`codex`) | codex login |
+| `agy:` | Antigravity (`agy`) | agy login |
+| `grok:` | Grok (`grok`) | grok login |
+| `cursor:` / `agent:` | Cursor agent | Cursor subscription |
 
 ```bash
-neurosploit run http://testphp.vulnweb.com/ --subscription --model anthropic:claude-opus-4-8 --mcp -v
+neurosploit run http://testphp.vulnweb.com/ --model claude:claude-opus-4-8 --mcp -v
 ```
 
 ---
@@ -182,7 +182,7 @@ Mistral, Qwen, Groq, Together, OpenRouter, Ollama).
 
 ```bash
 neurosploit run http://testphp.vulnweb.com/ \
-  --subscription --model anthropic:claude-opus-4-8 \
+  --model claude:claude-opus-4-8 \
   --focus "injection and broken access control" --mcp -v
 ```
 
@@ -198,7 +198,7 @@ hardcoded secrets, weak crypto, auth/IDOR, XXE, SSTI, language-specific sinks
 git clone https://github.com/digininja/DVWA /tmp/DVWA
 
 # 2. review it (subscription or --model with an API key)
-neurosploit whitebox /tmp/DVWA --subscription --model anthropic:claude-opus-4-8 -v
+neurosploit whitebox /tmp/DVWA --model claude:claude-opus-4-8 -v
 
 # focus a specific class, cap agents, raise the voting bar:
 neurosploit whitebox /tmp/DVWA --focus "injection and access control" \
@@ -234,7 +234,7 @@ on the running endpoint).
 # code repo + the URL where that code is actually running
 neurosploit greybox /tmp/DVWA --url http://localhost:8080/ \
   --creds creds.yaml --focus "auth and IDOR" \
-  --subscription --model anthropic:claude-opus-4-8 --mcp -v
+  --model claude:claude-opus-4-8 --mcp -v
 ```
 
 **How it works**
@@ -260,7 +260,7 @@ Target an IP/host with SSH or Windows/AD credentials from `creds.yaml`:
 
 ```bash
 neurosploit host 10.0.0.10 --creds creds.yaml \
-  --focus "privilege escalation and AD" --subscription --model anthropic:claude-opus-4-8 -v
+  --focus "privilege escalation and AD" --model claude:claude-opus-4-8 -v
 ```
 
 Runs infra agents: port/service scan, SMB enum, Linux privesc/sudo/cron/SSH,
@@ -280,9 +280,8 @@ neurosploit
 A context bar shows `model auth · cwd · mode▸target`. Key commands:
 
 ```
-/model [a:b,..]     set models (no arg → arrow-key multi-select)
+/model [a:b,..]     set models (no arg → arrow-key multi-select); use claude:/codex:/agy:/grok: for subscription
 /key [prov key]     configure API keys for your models (no arg → guided)
-/sub on|off         use subscription login instead of API key
 /target <url>       black-box target           /repo <path>   add a repo (repo+target = greybox)
 /auth <value>       send an auth header         /creds <file>  load creds.yaml
 /focus <text>       steer the tests (or just type the instruction)
@@ -336,7 +335,7 @@ A live dashboard with concurrent panels and a composer you can type in **while t
 run streams**:
 
 ```bash
-neurosploit tui http://testphp.vulnweb.com/ --subscription --model anthropic:claude-opus-4-8 --mcp
+neurosploit tui http://testphp.vulnweb.com/ --model claude:claude-opus-4-8 --mcp
 # greybox: add --repo /path/to/repo
 ```
 
@@ -487,7 +486,7 @@ the matching folder — it's picked up automatically.
 
 ## 14. Playwright MCP & extra tools
 
-`--mcp` (subscription path) drives a real **Playwright** browser for JS-heavy pages
+`--mcp` drives a real **Playwright** browser when CLI models support it (claude, codex, cursor)
 and to *prove* client-side issues (XSS firing, DOM, screenshots). It's
 auto-provisioned via `npx` when available; backends that don't support MCP fall
 back to `curl`. You can add more MCP servers by placing a `mcp.servers.json`
@@ -529,8 +528,8 @@ Common flags (run / greybox / host / tui):
 
 ```
 --model provider:model   repeatable; 1st = primary, rest = failover + voting jury
---subscription           use local CLI login instead of an API key
---mcp                    enable Playwright MCP browser (subscription path)
+                         mix API (anthropic:, openai:, …) and subscription (claude:, codex:, agy:, grok:, cursor:)
+--mcp                    enable Playwright MCP browser (when CLI models support it)
 --creds <file.yaml>      jwt/header/cookie/login + ssh/windows credentials
 --focus "<text>"         steer agent selection & execution
 --vote-n <n>             validator votes per finding (default 3)
@@ -553,7 +552,7 @@ Common flags (run / greybox / host / tui):
 neurosploit run https://app.example.com \
   --playbook "OWASP Top 10" \
   --auto-tools \
-  --subscription \
+  --model claude:claude-opus-4-8 \
   -v
 ```
 

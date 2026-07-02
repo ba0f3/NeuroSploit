@@ -40,13 +40,13 @@ type ChatClient interface {
 
 // ModelPool routes prompts across a panel of models with failover and concurrency limits.
 type ModelPool struct {
-	Client       ChatClient
-	Sem          chan struct{}
-	Candidates   []models.ModelRef
-	Subscription bool
-	MCPConfig    string
-	CLITimeout   time.Duration
-	Progress     chan<- string
+	Client     ChatClient
+	Sem        chan struct{}
+	CLISem     chan struct{}
+	Candidates []models.ModelRef
+	MCPConfig  string
+	CLITimeout time.Duration
+	Progress   chan<- string
 
 	ToolRegistry *tools.Registry
 	ToolExecutor tools.Executor
@@ -93,26 +93,24 @@ func isFast(model string) bool {
 
 // New creates a model pool with the given candidates and concurrency cap.
 func New(candidates []models.ModelRef, concurrency int) *ModelPool {
-	return WithAuth(candidates, concurrency, false, "")
+	return WithAuth(candidates, concurrency, "")
 }
 
-// WithAuth creates a model pool with optional subscription-CLI routing and MCP config.
-func WithAuth(candidates []models.ModelRef, concurrency int, subscription bool, mcpConfig string) *ModelPool {
-	if subscription {
-		concurrency = models.SubscriptionConcurrency(candidates, concurrency)
-	} else if concurrency < 1 {
-		concurrency = 1
-	}
+// WithAuth creates a model pool with per-model CLI routing and optional MCP config.
+func WithAuth(candidates []models.ModelRef, concurrency int, mcpConfig string) *ModelPool {
 	if concurrency < 1 {
 		concurrency = 1
 	}
-	return &ModelPool{
-		Candidates:   candidates,
-		Subscription: subscription,
-		MCPConfig:    mcpConfig,
-		Sem:          make(chan struct{}, concurrency),
-		resume:       make(chan struct{}),
+	p := &ModelPool{
+		Candidates: candidates,
+		MCPConfig:  mcpConfig,
+		Sem:        make(chan struct{}, concurrency),
+		resume:     make(chan struct{}),
 	}
+	if models.AnyCLIModel(candidates) {
+		p.CLISem = make(chan struct{}, models.CLISemaphoreCap(candidates))
+	}
+	return p
 }
 
 // SetProgress wires the activity feed channel used by subscription CLIs.
@@ -177,7 +175,7 @@ func (p *ModelPool) One(label string, m models.ModelRef, system, user string) (s
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), p.callTimeout(m))
 	defer cancel()
-	subscription := p.Subscription || models.ImpliesSubscription(m.Provider)
+	subscription := models.ImpliesSubscription(m.Provider)
 	channel := "api"
 	if subscription {
 		channel = "subscription"
@@ -185,6 +183,8 @@ func (p *ModelPool) One(label string, m models.ModelRef, system, user string) (s
 	var text string
 	var err error
 	if subscription {
+		release := p.acquireCLISem()
+		defer release()
 		text, err = p.Client.ChatCLI(ctx, label, m.Provider, m.Model, system, user, p.MCPConfig, p.Progress)
 	} else {
 		text, err = p.Client.Chat(ctx, m, system, user)
@@ -214,13 +214,21 @@ func (p *ModelPool) logAI(label, channel, model, system, user, tools, output str
 }
 
 func (p *ModelPool) callTimeout(m models.ModelRef) time.Duration {
-	if p.Subscription || models.ImpliesSubscription(m.Provider) {
+	if models.ImpliesSubscription(m.Provider) {
 		if p.CLITimeout > 0 {
 			return p.CLITimeout
 		}
 		return subscriptionCallTimeout
 	}
 	return apiCallTimeout
+}
+
+func (p *ModelPool) acquireCLISem() func() {
+	if p.CLISem == nil {
+		return func() {}
+	}
+	p.CLISem <- struct{}{}
+	return func() { <-p.CLISem }
 }
 
 // ResolveCLITimeout picks the subscription/CLI session deadline from config.
@@ -317,7 +325,7 @@ func (p *ModelPool) CompleteMessagesWithTools(label string, task Task, messages 
 func (p *ModelPool) oneWithTools(label string, m models.ModelRef, system, user string, tools []map[string]any) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), p.callTimeout(m))
 	defer cancel()
-	subscription := p.Subscription || models.ImpliesSubscription(m.Provider)
+	subscription := models.ImpliesSubscription(m.Provider)
 	channel := "api"
 	if subscription {
 		channel = "subscription"
@@ -326,6 +334,8 @@ func (p *ModelPool) oneWithTools(label string, m models.ModelRef, system, user s
 	var text string
 	var err error
 	if subscription {
+		release := p.acquireCLISem()
+		defer release()
 		text, err = p.Client.ChatCLI(ctx, label, m.Provider, m.Model, system, user, p.MCPConfig, p.Progress)
 	} else {
 		text, err = p.Client.ChatWithTools(ctx, m, system, user, tools)
@@ -343,11 +353,8 @@ func (p *ModelPool) Tools() *tools.Registry { return p.ToolRegistry }
 // Executor returns the configured tool executor.
 func (p *ModelPool) Executor() tools.Executor { return p.ToolExecutor }
 
-// UsesSubscriptionCLI reports whether completions route through a local agentic CLI.
+// UsesSubscriptionCLI reports whether any candidate routes through a local agentic CLI.
 func (p *ModelPool) UsesSubscriptionCLI() bool {
-	if p.Subscription {
-		return true
-	}
 	for _, m := range p.Candidates {
 		if models.ImpliesSubscription(m.Provider) {
 			return true

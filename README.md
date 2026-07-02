@@ -127,22 +127,22 @@ cargo build --release      # → target/release/neurosploit
 neurosploit
 
 # or one-liner (subscription login, no API key needed):
-neurosploit run http://testphp.vulnweb.com/ --subscription --model anthropic:claude-opus-4-8 -v
+neurosploit run http://testphp.vulnweb.com/ --model claude:claude-opus-4-8 -v
 
 # white-box — review a source repository (SAST agents, file:line evidence):
 git clone https://github.com/digininja/DVWA /tmp/DVWA
-neurosploit whitebox /tmp/DVWA --subscription --model anthropic:claude-opus-4-8 -v
+neurosploit whitebox /tmp/DVWA --model claude:claude-opus-4-8 -v
 
 # grey-box — review the code AND exploit the running app together:
 neurosploit greybox /tmp/DVWA --url http://localhost:8080/ --creds creds.yaml \
-  --subscription --model anthropic:claude-opus-4-8 --mcp -v
+  --model claude:claude-opus-4-8 --mcp -v
 
 # host / infra — Linux / Windows / Active Directory (SSH/Win creds in creds.yaml):
-neurosploit host 10.0.0.10 --creds creds.yaml --subscription --model anthropic:claude-opus-4-8 -v
+neurosploit host 10.0.0.10 --creds creds.yaml --model claude:claude-opus-4-8 -v
 
 # 🛰  Mission Control TUI — live panels (header/feed/findings/targets) + a composer
 #    you can type in WHILE the run streams (summary · pause · errors · notes):
-neurosploit tui http://testphp.vulnweb.com/ --subscription --model anthropic:claude-opus-4-8 --mcp
+neurosploit tui http://testphp.vulnweb.com/ --model claude:claude-opus-4-8 --mcp
 ```
 
 > Full step-by-step for every mode (black/white/grey/host) is in **[TUTORIAL.md](TUTORIAL.md)**.
@@ -162,18 +162,18 @@ export GITHUB_TOKEN=ghp_...                 # PAT with `repo` scope (private rep
 neurosploit integrations enable github
 
 # Review a Pull Request's code (clones the PR head, white-box) and comment back:
-neurosploit pr digininja/DVWA 42 --subscription --model anthropic:claude-opus-4-8 --comment
+neurosploit pr digininja/DVWA 42 --model claude:claude-opus-4-8 --comment
 
 # Watch a branch and re-review on every new commit:
-neurosploit watch myorg/private-app --branch main --subscription --model anthropic:claude-opus-4-8
+neurosploit watch myorg/private-app --branch main --model claude:claude-opus-4-8
 
 # Private GitLab repo (token-injected clone) — works in whitebox/greybox:
 export GITLAB_TOKEN=glpat-... ; neurosploit integrations enable gitlab
-neurosploit whitebox https://gitlab.com/myorg/private-svc --subscription --model anthropic:claude-opus-4-8
+neurosploit whitebox https://gitlab.com/myorg/private-svc --model claude:claude-opus-4-8
 
 # Open a Jira card per finding (any engagement):
 export JIRA_EMAIL=you@org.com JIRA_API_TOKEN=...      # set base/project once: /integrations setup jira
-neurosploit whitebox https://github.com/myorg/app --jira --subscription --model anthropic:claude-opus-4-8
+neurosploit whitebox https://github.com/myorg/app --jira --model claude:claude-opus-4-8
 ```
 
 | Integration | What you get | Env vars |
@@ -221,7 +221,7 @@ Or drive it directly:
 ```bash
 # Black-box — subscription (no API key), Opus, browser via Playwright if present, verbose
 ./target/release/neurosploit run http://testphp.vulnweb.com/ \
-    --subscription --model anthropic:claude-opus-4-8 --mcp -v
+    --model claude:claude-opus-4-8 --mcp -v
 
 # Black-box — API keys, multi-model voting panel (1st finds, others adjudicate)
 ./target/release/neurosploit run http://testphp.vulnweb.com/ \
@@ -230,7 +230,7 @@ Or drive it directly:
 # White-box — clone a vulnerable app and review its source
 git clone https://github.com/digininja/DVWA /tmp/DVWA
 ./target/release/neurosploit whitebox /tmp/DVWA \
-    --subscription --model anthropic:claude-opus-4-8 -v
+    --model claude:claude-opus-4-8 -v
 
 # Offline pipeline self-test (no keys/login needed)
 ./target/release/neurosploit run http://testphp.vulnweb.com/ --offline
@@ -245,8 +245,7 @@ git clone https://github.com/digininja/DVWA /tmp/DVWA
 
 | Flag | Meaning |
 |------|---------|
-| `--model provider:model` | Repeatable. First = primary; the rest fail over **and** form the voting jury. |
-| `--subscription` | Use the local CLI login (Claude/Codex/Gemini/Grok) instead of an API key. |
+| `--model provider:model` | Repeatable. First = primary; the rest fail over **and** form the voting jury. Mix API (`anthropic:`, `openai:`, …) and subscription (`claude:`, `codex:`, `agy:`, `grok:`, `cursor:`) in one run. |
 | `--mcp` | Enable Playwright MCP (auto-provisioned via `npx`; backends without MCP use built-in tools). |
 | `--vote-n N` | How many models must agree a finding is real (default 3 / 2 for whitebox). |
 | `--max-agents N` | Cap agents run (`0` = all matching the recon). |
@@ -259,15 +258,13 @@ You can run NeuroSploit two ways. They're independent: pick per run.
 
 #### 1) Via API (provider API key)
 
-Export the key(s) for the providers in your model panel, then run **without**
-`--subscription`. Any OpenAI-compatible provider works.
+Export the key(s) for the providers in your model panel. Any OpenAI-compatible provider works.
 
 ```bash
 # pick one or more, depending on the models you select
 export ANTHROPIC_API_KEY=sk-ant-...        # anthropic:claude-*
 export OPENAI_API_KEY=sk-...               # openai:gpt-*
 export GEMINI_API_KEY=AIza...              # gemini:gemini-*
-export XAI_API_KEY=xai-...                 # xai:grok-*
 export NVIDIA_NIM_API_KEY=nvapi-...        # nvidia_nim:*
 export DEEPSEEK_API_KEY=...                # deepseek:*
 export MISTRAL_API_KEY=...                 # mistral:*
@@ -277,7 +274,7 @@ export TOGETHER_API_KEY=...                # together:*
 export OPENROUTER_API_KEY=...              # openrouter:*
 # ollama needs no key (local)
 
-# then run via API (note: NO --subscription)
+# then run via API
 ./target/release/neurosploit run http://testphp.vulnweb.com/ \
     --model anthropic:claude-opus-4-8 --vote-n 3 -v
 
@@ -307,21 +304,25 @@ Or put the keys in a `.env` and source it (`cp .env.example .env`; edit; `set -a
 
 Run `./target/release/neurosploit models` for the full provider/model list.
 
-#### 2) Via subscription (no API key)
+#### 2) Via subscription CLI (no API key)
 
-`--subscription` drives your local agentic-CLI login instead of an API key —
-install and log into one of the CLIs first:
+Pick a **subscription provider key** in `--model` — install and log into the CLI first:
 
 | `--model` prefix | CLI used | Login |
 |------------------|----------|-------|
-| `anthropic:` | `claude` (Claude Code) | `claude` then `/login` |
-| `openai:` | `codex` | `codex` login |
-| `gemini:` | `gemini` | `gemini` login |
-| `xai:` | `grok` | `grok` login |
+| `claude:` | `claude` (Claude Code) | `claude` then `/login` |
+| `codex:` | `codex` | `codex` login |
+| `agy:` | `agy` (Antigravity) | `agy` login |
+| `grok:` | `grok` | `grok` login |
+| `cursor:` / `agent:` | `agent` / `cursor-agent` | Cursor subscription |
 
 ```bash
 ./target/release/neurosploit run http://testphp.vulnweb.com/ \
-    --subscription --model anthropic:claude-opus-4-8 --mcp -v
+    --model claude:claude-opus-4-8 --mcp -v
+
+# mixed API + subscription in one run
+./target/release/neurosploit run http://testphp.vulnweb.com/ \
+    --model openrouter:minimax/minimax-m3 --model codex:gpt-5.3-codex -v
 ```
 
 ---

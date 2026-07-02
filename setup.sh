@@ -105,5 +105,5 @@ esac
 echo
 ok "Done. Authenticate a model, then launch:"
 echo "      neurosploit                 # interactive session"
-echo "      neurosploit run http://testphp.vulnweb.com/ --subscription --model anthropic:claude-opus-4-8 -v"
+echo "      neurosploit run http://testphp.vulnweb.com/ --model claude:claude-opus-4-8 -v"
 echo "      neurosploit --help"

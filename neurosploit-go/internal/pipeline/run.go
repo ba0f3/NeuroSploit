@@ -76,7 +76,7 @@ func Run(ctx context.Context, cfg types.RunConfig, lib agents.Library, p PoolCal
 	if cfg.Offline {
 		selected := takeAgents(ranked, cap)
 		sendProgress(progress, fmt.Sprintf("selected %d specialist agents (RL-ranked)", len(selected)))
-		sendProgress(progress, "offline: no exploitation performed (provide API keys or --subscription to run live)")
+		sendProgress(progress, "offline: no exploitation performed (provide API keys or subscription CLI models to run live)")
 		artifacts := persist(cfg, recon, "", toolLog, nil)
 		return buildOutput(cfg, recon, nil, selected, 0, artifacts)
 	}

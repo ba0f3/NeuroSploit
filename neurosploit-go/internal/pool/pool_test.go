@@ -41,6 +41,45 @@ func (f fakeClient) ChatMessagesWithTools(ctx context.Context, m models.ModelRef
 	return f.Chat(ctx, m, system, user)
 }
 
+type routingClient struct {
+	lastAPI string
+	lastCLI string
+	fakeClient
+}
+
+func (r *routingClient) Chat(ctx context.Context, m models.ModelRef, system, user string) (string, error) {
+	r.lastAPI = m.Label()
+	return "api-ok", nil
+}
+
+func (r *routingClient) ChatCLI(ctx context.Context, label, provider, model, system, user, mcpConfig string, progress chan<- string) (string, error) {
+	r.lastCLI = provider + ":" + model
+	return "cli-ok", nil
+}
+
+func TestMixedRouting(t *testing.T) {
+	p := New([]models.ModelRef{
+		models.ModelRefParse("openrouter:minimax/minimax-m3"),
+		models.ModelRefParse("codex:gpt-5.3-codex"),
+	}, 8)
+	rc := &routingClient{}
+	p.Client = rc
+
+	text, err := p.One("test", models.ModelRefParse("openrouter:minimax/minimax-m3"), "sys", "user")
+	if err != nil || text != "api-ok" || rc.lastAPI != "openrouter:minimax/minimax-m3" || rc.lastCLI != "" {
+		t.Fatalf("API route: text=%q err=%v lastAPI=%q lastCLI=%q", text, err, rc.lastAPI, rc.lastCLI)
+	}
+
+	rc.lastAPI = ""
+	text, err = p.One("test", models.ModelRefParse("codex:gpt-5.3-codex"), "sys", "user")
+	if err != nil || text != "cli-ok" || rc.lastCLI != "codex:gpt-5.3-codex" || rc.lastAPI != "" {
+		t.Fatalf("CLI route: text=%q err=%v lastAPI=%q lastCLI=%q", text, err, rc.lastAPI, rc.lastCLI)
+	}
+	if p.CLISem == nil {
+		t.Fatal("expected CLISem for mixed panel with codex")
+	}
+}
+
 func TestSetProgress(t *testing.T) {
 	p := New([]models.ModelRef{models.ModelRefParse("anthropic:claude-opus-4-8")}, 1)
 	ch := make(chan string, 1)
@@ -156,8 +195,8 @@ func TestContinueAddsFallback(t *testing.T) {
 
 func TestCallTimeout(t *testing.T) {
 	p := New([]models.ModelRef{models.ModelRefParse("cursor:auto")}, 1)
-	if got := p.callTimeout(models.ModelRefParse("cursor:auto")); got != subscriptionCallTimeout {
-		t.Fatalf("cursor timeout = %v, want %v", got, subscriptionCallTimeout)
+	if got := p.callTimeout(models.ModelRefParse("codex:gpt-5.5")); got != subscriptionCallTimeout {
+		t.Fatalf("codex timeout = %v, want %v", got, subscriptionCallTimeout)
 	}
 	if got := p.callTimeout(models.ModelRefParse("openrouter:x")); got != apiCallTimeout {
 		t.Fatalf("api timeout = %v, want %v", got, apiCallTimeout)

@@ -59,7 +59,6 @@ type RunConfig struct {
 	Concurrency  int      `json:"concurrency"`
 	MaxAgents    int      `json:"max_agents"`
 	Offline      bool     `json:"offline"`
-	Subscription bool     `json:"subscription"`
 	Workdir      *string  `json:"workdir,omitempty"`
 	RLPath       *string  `json:"rl_path,omitempty"`
 	Verbose      bool     `json:"verbose"`

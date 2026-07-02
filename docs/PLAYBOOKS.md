@@ -55,7 +55,7 @@ phases:
 ./neurosploit run https://target.example \
   --playbook "OWASP Top 10" \
   --auto-tools \
-  --subscription
+  --model claude:claude-opus-4-8
 
 # Prompt before each tool command
 ./neurosploit run https://target.example --playbook api-security --interactive

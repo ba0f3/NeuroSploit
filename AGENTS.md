@@ -70,11 +70,12 @@ The `Makefile` lives in `neurosploit-go/`. It syncs `agents_md/` from the repo r
 
 ## Subscription CLI gotchas
 
-- `--subscription` uses local CLI login (claude, codex, grok, gemini, cursor/agent).
-- Cursor/agent concurrency is **capped at 1** (serial only).
-- Claude/Codex/Gemini/Grok concurrency caps at **3**.
+- Subscription models use dedicated provider keys: `claude`, `codex`, `agy`, `grok`, `cursor`/`agent`.
+- API models use `anthropic`, `openai`, `gemini`, `openrouter`, etc. Mix both in one `--model` panel.
+- Cursor/agent CLI concurrency is **capped at 1** (serial only).
+- Other subscription CLIs cap at **3** concurrent sessions (independent of API concurrency).
 - Non-stream timeout: 600s. Stream timeout: 900s.
-- API-based (non-subscription) HTTP client timeout: 120s.
+- API HTTP client timeout: 120s.
 
 ## Testing conventions
 

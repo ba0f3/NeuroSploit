@@ -30,13 +30,19 @@ type Provider struct {
 // Providers returns the full model registry.
 func Providers() []Provider {
 	return []Provider{
-		{Key: "anthropic", Label: "Anthropic Claude", BaseURL: "https://api.anthropic.com/v1", EnvKey: "ANTHROPIC_API_KEY", Kind: "cli",
+		{Key: "anthropic", Label: "Anthropic Claude (API)", BaseURL: "https://api.anthropic.com/v1", EnvKey: "ANTHROPIC_API_KEY", Kind: "api",
 			Models: []string{"claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"}},
-		{Key: "openai", Label: "OpenAI (ChatGPT)", BaseURL: "https://api.openai.com/v1", EnvKey: "OPENAI_API_KEY", Kind: "cli",
+		{Key: "claude", Label: "Anthropic Claude (subscription)", BaseURL: "", EnvKey: "", Kind: "cli",
+			Models: []string{"claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"}},
+		{Key: "openai", Label: "OpenAI (API)", BaseURL: "https://api.openai.com/v1", EnvKey: "OPENAI_API_KEY", Kind: "api",
 			Models: []string{"gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2", "gpt-5.1", "gpt-5.1-codex", "o4"}},
-		{Key: "xai", Label: "xAI Grok", BaseURL: "https://api.x.ai/v1", EnvKey: "XAI_API_KEY", Kind: "cli",
+		{Key: "codex", Label: "OpenAI Codex (subscription)", BaseURL: "", EnvKey: "", Kind: "cli",
+			Models: []string{"gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2", "gpt-5.1", "gpt-5.1-codex", "o4"}},
+		{Key: "grok", Label: "xAI Grok (subscription)", BaseURL: "", EnvKey: "", Kind: "cli",
 			Models: []string{"grok-4", "grok-4-fast"}},
-		{Key: "gemini", Label: "Google Gemini", BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai", EnvKey: "GEMINI_API_KEY", Kind: "cli",
+		{Key: "gemini", Label: "Google Gemini (API)", BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai", EnvKey: "GEMINI_API_KEY", Kind: "api",
+			Models: []string{"gemini-3-pro", "gemini-2.5-pro", "gemini-2.5-flash"}},
+		{Key: "agy", Label: "Google Antigravity (subscription)", BaseURL: "", EnvKey: "", Kind: "cli",
 			Models: []string{"gemini-3-pro", "gemini-2.5-pro", "gemini-2.5-flash"}},
 		{Key: "nvidia_nim", Label: "NVIDIA NIM", BaseURL: "https://integrate.api.nvidia.com/v1", EnvKey: "NVIDIA_NIM_API_KEY", Kind: "api",
 			Models: []string{"nvidia/llama-3.3-nemotron-super-49b-v1", "deepseek-ai/deepseek-r1", "qwen/qwen2.5-coder-32b-instruct"}},
@@ -411,8 +417,8 @@ func (c ChatClient) ChatCLI(ctx context.Context, label, provider, model, system,
 			args = append(args, "--config", "mcp_config_file="+mcpConfig)
 		}
 		args = append(args, "-")
-	case "gemini":
-		args = append(args, "-m", model)
+	case "agy":
+		args = append(args, "-p", "--dangerously-skip-permissions", "-")
 	case "grok":
 		args = append(args, "--model", model)
 	}
@@ -843,7 +849,8 @@ func cursorCLIErrorDetail(stderr, stdout string) string {
 // UsesCursorCLI reports whether any candidate routes through the Cursor agent binary.
 func UsesCursorCLI(refs []ModelRef) bool {
 	for _, m := range refs {
-		if ImpliesSubscription(m.Provider) {
+		switch m.Provider {
+		case "cursor", "agent":
 			return true
 		}
 	}
@@ -853,38 +860,39 @@ func UsesCursorCLI(refs []ModelRef) bool {
 // ImpliesSubscription reports providers that only run via local CLI login (no API key path).
 func ImpliesSubscription(provider string) bool {
 	switch provider {
-	case "cursor", "agent":
+	case "cursor", "agent", "claude", "codex", "agy", "grok":
 		return true
 	default:
 		return false
 	}
 }
 
-// ApplyImpliedSubscription returns true when subscription should be on: explicit flag or CLI-only provider.
-func ApplyImpliedSubscription(explicit bool, modelList []string) bool {
-	if explicit {
-		return true
-	}
-	for _, s := range modelList {
-		if ImpliesSubscription(ModelRefParse(s).Provider) {
+// AnyCLIModel reports whether any candidate uses a subscription CLI.
+func AnyCLIModel(refs []ModelRef) bool {
+	for _, m := range refs {
+		if ImpliesSubscription(m.Provider) {
 			return true
 		}
 	}
 	return false
 }
 
-// SubscriptionConcurrency returns the pool/exploit concurrency cap for subscription CLIs.
-func SubscriptionConcurrency(refs []ModelRef, requested int) int {
-	if requested < 1 {
-		requested = 1
+// AnyMCPSupported reports whether any candidate's CLI accepts Playwright MCP config.
+func AnyMCPSupported(refs []ModelRef) bool {
+	for _, m := range refs {
+		if MCPSupported(m.Provider) {
+			return true
+		}
 	}
+	return false
+}
+
+// CLISemaphoreCap returns the concurrent subscription-CLI session limit for refs.
+func CLISemaphoreCap(refs []ModelRef) int {
 	if UsesCursorCLI(refs) {
 		return 1
 	}
-	if requested > 3 {
-		return 3
-	}
-	return requested
+	return 3
 }
 
 func parseCursorOutput(stdout string) (string, error) {
@@ -919,14 +927,14 @@ func parseCursorOutput(stdout string) (string, error) {
 // CLIBinaryFor maps a provider to its local agentic CLI binary.
 func CLIBinaryFor(provider string) string {
 	switch provider {
-	case "anthropic":
+	case "claude":
 		return "claude"
-	case "openai":
+	case "codex":
 		return "codex"
-	case "xai":
+	case "grok":
 		return "grok"
-	case "gemini":
-		return "gemini"
+	case "agy":
+		return "agy"
 	case "cursor", "agent":
 		if BinaryInPath("agent") {
 			return "agent"
@@ -950,7 +958,7 @@ func BinaryInPath(name string) bool {
 // InstalledCLIBackends lists the subscription CLI backends that are installed locally.
 func InstalledCLIBackends() []string {
 	var out []string
-	for _, b := range []string{"claude", "codex", "grok", "gemini"} {
+	for _, b := range []string{"claude", "codex", "grok", "agy"} {
 		if BinaryInPath(b) {
 			out = append(out, b)
 		}
@@ -960,7 +968,12 @@ func InstalledCLIBackends() []string {
 
 // MCPSupported reports whether the provider's CLI accepts a Playwright MCP config.
 func MCPSupported(provider string) bool {
-	return provider == "anthropic" || provider == "openai" || provider == "cursor"
+	switch provider {
+	case "anthropic", "claude", "openai", "codex", "cursor", "agent":
+		return true
+	default:
+		return false
+	}
 }
 
 // EnsurePlaywrightMCP best-effort pre-warms the Playwright MCP package.

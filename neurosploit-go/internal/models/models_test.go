@@ -12,8 +12,8 @@ import (
 )
 
 func TestProvidersCount(t *testing.T) {
-	if got := len(Providers()); got != 15 {
-		t.Errorf("Providers() = %d, want 15", got)
+	if got := len(Providers()); got != 18 {
+		t.Errorf("Providers() = %d, want 18", got)
 	}
 }
 
@@ -66,7 +66,7 @@ func TestProviderFor(t *testing.T) {
 }
 
 func TestMCPSupported(t *testing.T) {
-	if !MCPSupported("anthropic") || !MCPSupported("openai") || !MCPSupported("cursor") || MCPSupported("xai") {
+	if !MCPSupported("claude") || !MCPSupported("codex") || !MCPSupported("cursor") || MCPSupported("agy") {
 		t.Errorf("MCPSupported results incorrect")
 	}
 }
@@ -226,35 +226,44 @@ func TestConsumeCLIStream(t *testing.T) {
 	}
 }
 
-func TestSubscriptionConcurrency(t *testing.T) {
+func TestCLISemaphoreCap(t *testing.T) {
 	refs := []ModelRef{{Provider: "cursor", Model: "auto"}}
-	if got := SubscriptionConcurrency(refs, 8); got != 1 {
-		t.Fatalf("cursor concurrency = %d, want 1", got)
+	if got := CLISemaphoreCap(refs); got != 1 {
+		t.Fatalf("cursor cap = %d, want 1", got)
 	}
-	refs = []ModelRef{{Provider: "anthropic", Model: "claude"}}
-	if got := SubscriptionConcurrency(refs, 8); got != 3 {
-		t.Fatalf("anthropic concurrency = %d, want 3", got)
+	refs = []ModelRef{{Provider: "codex", Model: "gpt-5.5"}}
+	if got := CLISemaphoreCap(refs); got != 3 {
+		t.Fatalf("codex cap = %d, want 3", got)
 	}
 }
 
 func TestImpliesSubscription(t *testing.T) {
-	if !ImpliesSubscription("cursor") || !ImpliesSubscription("agent") {
-		t.Fatal("cursor/agent should imply subscription")
+	for _, p := range []string{"cursor", "agent", "claude", "codex", "agy", "grok"} {
+		if !ImpliesSubscription(p) {
+			t.Fatalf("%s should imply subscription", p)
+		}
 	}
-	if ImpliesSubscription("anthropic") || ImpliesSubscription("openrouter") {
-		t.Fatal("API providers should not imply subscription")
+	for _, p := range []string{"anthropic", "openai", "gemini", "openrouter"} {
+		if ImpliesSubscription(p) {
+			t.Fatalf("%s should not imply subscription", p)
+		}
 	}
 }
 
-func TestApplyImpliedSubscription(t *testing.T) {
-	if !ApplyImpliedSubscription(false, []string{"cursor:auto"}) {
-		t.Fatal("cursor model should imply subscription")
+func TestCLIBinaryForSubscriptionProviders(t *testing.T) {
+	cases := map[string]string{
+		"claude": "claude",
+		"codex":  "codex",
+		"agy":    "agy",
+		"grok":   "grok",
 	}
-	if ApplyImpliedSubscription(false, []string{"openrouter:minimax/minimax-m3"}) {
-		t.Fatal("openrouter should not imply subscription")
+	for provider, want := range cases {
+		if got := CLIBinaryFor(provider); got != want {
+			t.Fatalf("CLIBinaryFor(%s) = %q, want %q", provider, got, want)
+		}
 	}
-	if !ApplyImpliedSubscription(true, []string{"openrouter:minimax/minimax-m3"}) {
-		t.Fatal("explicit subscription should stay on")
+	if CLIBinaryFor("anthropic") != "" || CLIBinaryFor("openai") != "" || CLIBinaryFor("gemini") != "" {
+		t.Fatal("API providers should not map to CLI binaries")
 	}
 }
 

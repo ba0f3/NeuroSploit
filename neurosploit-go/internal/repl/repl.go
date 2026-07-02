@@ -25,18 +25,17 @@ import (
 
 // Session holds interactive REPL configuration.
 type Session struct {
-	Base         string
-	Models       []string
-	Subscription bool
-	MCP          bool
-	VoteN        int
-	MaxAgents    int
-	Target       string
-	Repo         string
-	Auth         string
-	Focus        string
-	CredsPath    string
-	Offline      bool
+	Base      string
+	Models    []string
+	MCP       bool
+	VoteN     int
+	MaxAgents int
+	Target    string
+	Repo      string
+	Auth      string
+	Focus     string
+	CredsPath string
+	Offline   bool
 
 	mu      sync.Mutex
 	running bool
@@ -188,8 +187,8 @@ func (s *Session) handle(line string, out io.Writer) error {
 		if mode != "" {
 			modeStr = engagement.ModeLabel(mode)
 		}
-		fmt.Fprintf(out, "mode: %s\ntarget: %s\nrepo: %s\ncreds: %s\nmodels: %v\nsubscription: %v\nmcp: %v\nvote-n: %d\nmax-agents: %d\noffline: %v\n",
-			modeStr, s.Target, s.Repo, s.CredsPath, s.Models, s.Subscription, s.MCP, s.VoteN, s.MaxAgents, s.Offline)
+		fmt.Fprintf(out, "mode: %s\ntarget: %s\nrepo: %s\ncreds: %s\nmodels: %v\nmcp: %v\nvote-n: %d\nmax-agents: %d\noffline: %v\n",
+			modeStr, s.Target, s.Repo, s.CredsPath, s.Models, s.MCP, s.VoteN, s.MaxAgents, s.Offline)
 	case "/providers":
 		for _, p := range models.Providers() {
 			fmt.Fprintf(out, "%-12s %s\n", p.Key, p.Label)
@@ -239,9 +238,6 @@ func (s *Session) handle(line string, out io.Writer) error {
 	case "/offline":
 		s.Offline = !s.Offline
 		fmt.Fprintf(out, "offline: %v\n", s.Offline)
-	case "/subscription", "/sub":
-		s.Subscription = !s.Subscription
-		fmt.Fprintf(out, "subscription: %v\n", s.Subscription)
 	case "/mcp":
 		s.MCP = !s.MCP
 		fmt.Fprintf(out, "mcp: %v\n", s.MCP)
@@ -431,7 +427,6 @@ func (s *Session) RunConfig() types.RunConfig {
 	cfg.Models = s.Models
 	cfg.MaxAgents = s.MaxAgents
 	cfg.VoteN = s.VoteN
-	cfg.Subscription = s.Subscription
 	cfg.Offline = s.Offline
 	if s.Focus != "" {
 		cfg.Instructions = &s.Focus
@@ -442,7 +437,6 @@ func (s *Session) RunConfig() types.RunConfig {
 	if s.Auth != "" {
 		cfg.Auth = &s.Auth
 	}
-	cfg.Subscription = models.ApplyImpliedSubscription(cfg.Subscription, cfg.Models)
 	return cfg
 }
 
@@ -453,7 +447,7 @@ func (s *Session) HandleLine(line string, out io.Writer) error {
 
 var commandList = []string{
 	"/help", "/show", "/config", "/providers", "/model", "/target", "/repo", "/auth", "/creds", "/focus",
-	"/offline", "/sub", "/subscription", "/mcp", "/votes", "/max-agents", "/run", "/stop",
+	"/offline", "/mcp", "/votes", "/max-agents", "/run", "/stop",
 	"/status", "/results", "/report", "/quit", "/exit",
 }
 
@@ -470,7 +464,6 @@ Available commands:
   /focus <text>      Set focus instructions
   Modes: /target only = black-box · /repo only = white-box · both = greybox · /target IP + /creds ssh = host
   /offline           Toggle stub offline harness (no API keys)
-  /sub               Toggle subscription mode
   /mcp               Toggle MCP
   /votes <n>         Set vote panel size
   /max-agents <n>    Set max agents

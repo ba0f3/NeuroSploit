@@ -50,7 +50,7 @@ After recon it selects agents, runs them in parallel, then validates findings by
 func runCmd() *cobra.Command {
 	var modelsFlag []string
 	var maxAgents, voteN, chainDepth int
-	var offline, subscription, mcp, autoTools, interactive, autoSkills bool
+	var offline, mcp, autoTools, interactive, autoSkills bool
 	var credsPath, focus, playbook, skillsFlag, disableTools string
 	var verbose bool
 	var toolTimeout, cliTimeout int
@@ -68,7 +68,6 @@ func runCmd() *cobra.Command {
 			}
 			cfg.VoteN = voteN
 			cfg.ChainDepth = chainDepth
-			cfg.Subscription = subscription
 			cfg.Verbose = verbose
 			cfg.AutoTools = autoTools
 			cfg.Interactive = interactive
@@ -100,7 +99,6 @@ func runCmd() *cobra.Command {
 	cmd.Flags().IntVar(&voteN, "vote-n", 3, "Cross-model validation panel size")
 	cmd.Flags().IntVar(&chainDepth, "chain-depth", 2, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
 	cmd.Flags().BoolVar(&offline, "offline", false, "Offline self-test using stubbed pool")
-	cmd.Flags().BoolVar(&subscription, "subscription", false, "Use local agentic CLI subscriptions")
 	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable Playwright MCP if available")
 	cmd.Flags().StringVar(&credsPath, "creds", "", "Path to creds.yaml")
 	cmd.Flags().StringVar(&focus, "focus", "", "Focus instructions")
@@ -119,7 +117,7 @@ func runCmd() *cobra.Command {
 func whiteboxCmd() *cobra.Command {
 	var modelsFlag []string
 	var maxAgents, voteN, chainDepth int
-	var subscription, mcp, verbose bool
+	var mcp, verbose bool
 	var credsPath string
 
 	cmd := &cobra.Command{
@@ -135,7 +133,6 @@ func whiteboxCmd() *cobra.Command {
 			}
 			cfg.VoteN = voteN
 			cfg.ChainDepth = chainDepth
-			cfg.Subscription = subscription
 			cfg.Verbose = verbose
 			if err := engagement.ApplyCreds(cmd.Context(), &cfg, credsPath); err != nil {
 				return err
@@ -147,7 +144,6 @@ func whiteboxCmd() *cobra.Command {
 	cmd.Flags().IntVar(&maxAgents, "max-agents", 0, "Maximum agents")
 	cmd.Flags().IntVar(&voteN, "vote-n", 2, "Cross-model validation panel size")
 	cmd.Flags().IntVar(&chainDepth, "chain-depth", 2, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
-	cmd.Flags().BoolVar(&subscription, "subscription", false, "Use local CLI subscriptions")
 	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable MCP")
 	cmd.Flags().StringVar(&credsPath, "creds", "", "Path to creds.yaml")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
@@ -158,7 +154,7 @@ func greyboxCmd() *cobra.Command {
 	var url string
 	var modelsFlag []string
 	var maxAgents, voteN, chainDepth int
-	var offline, subscription, mcp, verbose bool
+	var offline, mcp, verbose bool
 	var credsPath, focus string
 
 	cmd := &cobra.Command{
@@ -180,7 +176,6 @@ func greyboxCmd() *cobra.Command {
 				cfg.VoteN = 3
 			}
 			cfg.ChainDepth = chainDepth
-			cfg.Subscription = subscription
 			cfg.Verbose = verbose
 			if focus != "" {
 				cfg.Instructions = &focus
@@ -201,7 +196,6 @@ func greyboxCmd() *cobra.Command {
 	cmd.Flags().IntVar(&voteN, "vote-n", 3, "Cross-model validation panel size")
 	cmd.Flags().IntVar(&chainDepth, "chain-depth", 2, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
 	cmd.Flags().BoolVar(&offline, "offline", false, "Offline self-test using stubbed pool")
-	cmd.Flags().BoolVar(&subscription, "subscription", false, "Use local CLI subscriptions")
 	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable Playwright MCP if available")
 	cmd.Flags().StringVar(&credsPath, "creds", "", "Path to creds.yaml")
 	cmd.Flags().StringVar(&focus, "focus", "", "Focus instructions")
@@ -213,7 +207,7 @@ func greyboxCmd() *cobra.Command {
 func hostCmd() *cobra.Command {
 	var modelsFlag []string
 	var maxAgents, voteN, chainDepth int
-	var offline, subscription, verbose bool
+	var offline, verbose bool
 	var credsPath, focus string
 
 	cmd := &cobra.Command{
@@ -229,7 +223,6 @@ func hostCmd() *cobra.Command {
 				cfg.VoteN = 3
 			}
 			cfg.ChainDepth = chainDepth
-			cfg.Subscription = subscription
 			cfg.Verbose = verbose
 			if focus != "" {
 				cfg.Instructions = &focus
@@ -251,7 +244,6 @@ func hostCmd() *cobra.Command {
 	cmd.Flags().IntVar(&voteN, "vote-n", 3, "Cross-model validation panel size")
 	cmd.Flags().IntVar(&chainDepth, "chain-depth", 2, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
 	cmd.Flags().BoolVar(&offline, "offline", false, "Offline self-test using stubbed pool")
-	cmd.Flags().BoolVar(&subscription, "subscription", false, "Use local CLI subscriptions")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	return cmd
 }
@@ -259,7 +251,7 @@ func hostCmd() *cobra.Command {
 func tuiCmd() *cobra.Command {
 	var modelsFlag []string
 	var chainDepth int
-	var subscription, mcp, verbose bool
+	var mcp, verbose bool
 	var repoFlag, credsPath, focus string
 
 	cmd := &cobra.Command{
@@ -282,7 +274,6 @@ func tuiCmd() *cobra.Command {
 			cfg.MaxAgents = 5
 			cfg.VoteN = 3
 			cfg.ChainDepth = chainDepth
-			cfg.Subscription = subscription
 			cfg.Verbose = verbose
 			if focus != "" {
 				cfg.Instructions = &focus
@@ -298,7 +289,6 @@ func tuiCmd() *cobra.Command {
 	cmd.Flags().StringVar(&credsPath, "creds", "", "Path to creds.yaml")
 	cmd.Flags().StringVar(&focus, "focus", "", "Focus instructions")
 	cmd.Flags().IntVar(&chainDepth, "chain-depth", 2, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
-	cmd.Flags().BoolVar(&subscription, "subscription", false, "Use local CLI subscriptions")
 	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable MCP")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	return cmd
@@ -349,10 +339,10 @@ func formatCLIBackends(w io.Writer) int {
 		hint    string
 	}
 	entries := []entry{
-		{"claude", models.CLIBinaryFor("anthropic"), "Anthropic Claude Code CLI"},
-		{"codex", models.CLIBinaryFor("openai"), "OpenAI Codex CLI"},
-		{"grok", models.CLIBinaryFor("xai"), "xAI Grok CLI"},
-		{"gemini", models.CLIBinaryFor("gemini"), "Google Gemini CLI"},
+		{"claude", models.CLIBinaryFor("claude"), "Anthropic Claude Code CLI"},
+		{"codex", models.CLIBinaryFor("codex"), "OpenAI Codex CLI"},
+		{"grok", models.CLIBinaryFor("grok"), "xAI Grok CLI"},
+		{"agy", models.CLIBinaryFor("agy"), "Google Antigravity CLI"},
 		{"cursor", models.CLIBinaryFor("cursor"), "Cursor Agent CLI"},
 		{"npx", "npx", "Node.js npx — Playwright MCP"},
 	}
