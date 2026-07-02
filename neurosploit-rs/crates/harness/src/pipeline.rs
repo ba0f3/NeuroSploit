@@ -22,7 +22,13 @@ pub struct RunOutput {
     pub artifacts: Vec<String>,
 }
 
-const RECON_SYS: &str = "You are a web recon specialist on an AUTHORIZED engagement. You have shell tools (curl etc.) — actively fetch the target, enumerate pages/params, and map the real attack surface. Do not ask for permission; proceed. Reply with a compact JSON object (tech, endpoints, params, auth, apis). No prose.";
+const RECON_SYS: &str = "You are an elite web recon specialist on an AUTHORIZED engagement. Actively fetch the target with your tools and map the REAL attack surface in DEPTH — do not ask for permission, proceed:\n\
+- Crawl pages, forms and parameters; record every input, header, cookie and redirect.\n\
+- DOWNLOAD the linked JavaScript bundles (curl each script) and ANALYZE them: extract API endpoints/routes, hidden/undocumented parameters, GraphQL operations, secrets / API keys / tokens, cloud & third-party URLs, feature flags, and `sourceMappingURL` references (fetch source maps if exposed to recover original source).\n\
+- Fingerprint the tech stack and EXACT versions (server, framework, libraries, CMS, JS libs) from headers, HTML, asset paths and JS.\n\
+- Analyze responses deeply: status codes, ALL headers, Set-Cookie flags, verbose errors/stack traces, content types, and length/timing differentials.\n\
+- Map auth (cookie/JWT/OAuth), APIs (REST & GraphQL), and any dev/staging/internal hosts referenced anywhere.\n\
+Base everything on real observed responses — never assume. Reply with a COMPACT JSON object with keys {tech, versions, endpoints, params, apis, auth, js_findings, secrets, hosts, notes}. No prose.";
 
 /// Operator directives (focus instructions + auth material) prepended to
 /// recon/exploit prompts so the engagement is steered as the user asked.
@@ -51,11 +57,18 @@ fn tool_doctrine(mcp_on: bool) -> String {
     };
     format!(
         "TOOLING (authorized; best on Kali Linux or the kalilinux/kali-rolling Docker image):\n\
-         - HTTP: `curl` (headers, methods, params, cookies), `wget`.\n\
+         - HTTP: `curl` (dump ALL response headers with -i/-D-, follow/inspect redirects, set methods/params/cookies), `wget`.\n\
          - Ports/services: `rustscan` if present, else `nmap`; if neither is installed you may \
            install via apt (`apt install -y nmap`), brew, or cargo (`cargo install rustscan`) — \
            otherwise probe common ports with `curl`/`nc`.\n\
-         - Content/params: `ffuf`, `gobuster`, `gau`, `katana` when available.\n\
+         - Content/params/URLs: `ffuf`, `gobuster`, `gau`, `katana`, `waybackurls`, `linkfinder` when available.\n\
+         - JS ANALYSIS: download every linked script (`curl -s <script.js>`) and grep it for endpoints/paths, \
+           `fetch(`/`axios`/XHR URLs, API & GraphQL routes, hidden params, and secrets (AKIA…, `api_key`, `token`, \
+           `Bearer `, `authorization`), plus `sourceMappingURL` (fetch the .map to recover original source). \
+           Prefer `linkfinder`/`gau`/`katana` to harvest more URLs when present, else regex with `grep -Eo`.\n\
+         - REQUEST/RESPONSE ANALYSIS: read status codes, every header, Set-Cookie flags, content-type, body length \
+           and response timing; use DIFFERENTIALS (authenticated vs anonymous, valid vs invalid input, existing vs \
+           missing resource) and reflected input / verbose errors to infer behavior and CONFIRM issues with evidence.\n\
          - {browser}\n\
          Use only what is installed; degrade gracefully. Never run destructive or DoS actions.\n\n"
     )

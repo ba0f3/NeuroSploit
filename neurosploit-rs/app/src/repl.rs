@@ -1,4 +1,4 @@
-//! NeuroSploit v3.5.4 — interactive session (Claude-Code / Codex / Cursor-CLI style).
+//! NeuroSploit v3.5.5 — interactive session (Claude-Code / Codex / Cursor-CLI style).
 //!
 //! Launched when `neurosploit` runs with no subcommand. A persistent REPL with
 //! real line editing (arrow-key history recall, Ctrl-A/E/K, paste), model
@@ -119,7 +119,7 @@ struct LiveCheckpoint {
 const COMMANDS: &[&str] = &[
     "/help", "/show", "/config", "/providers", "/model", "/key", "/sub", "/target",
     "/repo", "/auth", "/creds", "/focus", "/attach", "/context", "/mcp", "/offline",
-    "/votes", "/agents", "/theme", "/clear", "/run", "/stop", "/continue", "/runs", "/results", "/report",
+    "/votes", "/chain", "/timeout", "/agents", "/theme", "/clear", "/run", "/stop", "/continue", "/runs", "/results", "/report",
     "/status", "/diff", "/retest", "/integrations", "/quit",
 ];
 
@@ -170,7 +170,22 @@ fn complete_path(prefix: &str) -> Vec<Pair> {
 }
 
 impl Hinter for NsHelper { type Hint = String; }
-impl Highlighter for NsHelper {}
+impl Highlighter for NsHelper {
+    // Color the prompt for display only. rustyline measures the ORIGINAL (plain)
+    // prompt for cursor width, so adding ANSI here does NOT break line editing —
+    // unlike embedding escapes in the prompt string passed to readline().
+    fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
+        &'s self,
+        prompt: &'p str,
+        _default: bool,
+    ) -> std::borrow::Cow<'b, str> {
+        if prompt.trim_start().starts_with("neurosploit") {
+            std::borrow::Cow::Owned(format!("\x1b[35m{prompt}\x1b[0m"))
+        } else {
+            std::borrow::Cow::Borrowed(prompt)
+        }
+    }
+}
 impl Validator for NsHelper {
     fn validate(&self, ctx: &mut ValidationContext<'_>) -> rustyline::Result<ValidationResult> {
         if ctx.input().ends_with('\\') {
@@ -198,6 +213,10 @@ struct Session {
     mcp: bool,
     vote_n: usize,
     max_agents: usize,
+    chain_depth: usize,
+    /// Idle guardrail: stop a run if no NEW finding lands in this many seconds
+    /// (0 = disabled). Set in minutes via `/timeout <mins>`.
+    idle_secs: u64,
     offline: bool,
     target: Option<String>,
     repo: Option<String>,
@@ -216,6 +235,8 @@ impl Default for Session {
             mcp: false,
             vote_n: 3,
             max_agents: 0,
+            chain_depth: 2,
+            idle_secs: 300, // 5-minute idle guardrail by default
             offline: false,
             target: None,
             repo: None,
@@ -299,7 +320,7 @@ pub async fn repl(base: &Path) -> anyhow::Result<()> {
     let backends = harness::installed_cli_backends();
     println!("\x1b[1m");
     println!("  ███╗   ██╗███████╗██╗   ██╗██████╗  ██████╗");
-    println!("  ████╗  ██║██╔════╝██║   ██║██╔══██╗██╔═══██╗   NeuroSploit v3.5.4");
+    println!("  ████╗  ██║██╔════╝██║   ██║██╔══██╗██╔═══██╗   NeuroSploit v3.5.5");
     println!("  ██╔██╗ ██║█████╗  ██║   ██║██████╔╝██║   ██║   interactive harness");
     println!("  ██║╚██╗██║██╔══╝  ██║   ██║██╔══██╗██║   ██║   by Joas A Santos");
     println!("  ██║ ╚████║███████╗╚██████╔╝██║  ██║╚██████╔╝   & Red Team Leaders");
@@ -336,10 +357,18 @@ pub async fn repl(base: &Path) -> anyhow::Result<()> {
     println!();
     let mut reader = Reader::new(base);
     let mut active: Option<ActiveRun> = None;
+    let mut queue: Vec<String> = Vec::new(); // remaining targets for a multi-target /run
     show(&s);
 
     loop {
-        let Some(line) = reader.read(&context_prompt(&s)) else { println!("\n  bye."); break };
+        // Multi-target queue: when the current run finishes, auto-start the next.
+        if !queue.is_empty() && active.as_ref().map(|a| a.done.load(Ordering::Relaxed)).unwrap_or(true) {
+            let next = queue.remove(0);
+            println!("\n  \x1b[1;35m▶ next target\x1b[0m ({} left): {next}", queue.len());
+            active = start_background(base, &s, &mut reader, history.clone(), Some(&next)).await;
+        }
+        println!("{}", context_prompt(&s)); // dim context line above the prompt
+        let Some(line) = reader.read(PROMPT) else { println!("\n  bye."); break };
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -386,10 +415,28 @@ pub async fn repl(base: &Path) -> anyhow::Result<()> {
                 println!("  subscription: {}", onoff(s.subscription));
             }
             "/target" | "/url" => {
-                if arg.is_empty() { println!("  target: {}", s.target.clone().unwrap_or_else(|| "(none) — set with /target <url>, clear with /target clear".into())); }
+                if arg.is_empty() { println!("  target: {}", s.target.clone().unwrap_or_else(|| "(none) — set with /target <url[,url2,...]>, clear with /target clear".into())); }
                 else if arg == "clear" { s.target = None; println!("  target cleared"); }
-                else { let t = if arg.starts_with("http") { arg.to_string() } else { format!("https://{arg}") };
-                       s.target = Some(t.clone()); println!("  target: {t}"); }
+                else {
+                    // Accept one URL or a comma-separated list; normalize each.
+                    let ts: Vec<String> = arg.split(',').map(|x| x.trim()).filter(|x| !x.is_empty())
+                        .map(|x| if x.starts_with("http") { x.to_string() } else { format!("https://{x}") })
+                        .collect();
+                    s.target = Some(ts.join(","));
+                    if ts.len() > 1 { println!("  targets ({}): {}", ts.len(), ts.join(", ")); println!("  \x1b[2m/run tests them sequentially, one report each\x1b[0m"); }
+                    else { println!("  target: {}", ts.first().cloned().unwrap_or_default()); }
+                }
+            }
+            "/timeout" | "/idle" => {
+                if arg.is_empty() {
+                    if s.idle_secs == 0 { println!("  idle guardrail: off — set minutes with /timeout <n> (0 disables)"); }
+                    else { println!("  idle guardrail: stop if no new finding in {} min — /timeout <n> (0 disables)", s.idle_secs / 60); }
+                } else {
+                    let mins: u64 = arg.trim().parse().unwrap_or(s.idle_secs / 60);
+                    s.idle_secs = mins.saturating_mul(60);
+                    if mins == 0 { println!("  idle guardrail: off"); }
+                    else { println!("  idle guardrail: stop if no new finding in {mins} min"); }
+                }
             }
             "/repo" => {
                 if arg.is_empty() { println!("  repo: {}", s.repo.clone().unwrap_or_else(|| "(none) — set with /repo <path | github-url | owner/repo>, clear with /repo clear".into())); }
@@ -432,18 +479,43 @@ pub async fn repl(base: &Path) -> anyhow::Result<()> {
             "/offline" => { s.offline = !matches!(arg, "off" | "false" | "0" | "no"); println!("  offline: {}", onoff(s.offline)); }
             "/integrations" | "/integration" => integrations_cmd(arg),
             "/votes" => { s.vote_n = arg.parse().unwrap_or(s.vote_n); println!("  votes: {}", s.vote_n); }
-            "/agents" => { s.max_agents = arg.parse().unwrap_or(s.max_agents); println!("  max agents: {}", s.max_agents); }
+            "/chain" => {
+                if arg.is_empty() { println!("  attack-chain depth: {} (0 disables) — set with /chain <n>", s.chain_depth); }
+                else { s.chain_depth = arg.parse().unwrap_or(s.chain_depth); println!("  attack-chain depth: {}", s.chain_depth); }
+            }
+            "/agents" => {
+                if arg == "list" || arg == "ls" {
+                    let lib = agents::load(base);
+                    println!("  agent library ({} total):", lib.total());
+                    println!("    vulns {} · code {} · infra/cloud {} · recon {} · chains {} · meta {}",
+                        lib.vulns.len(), lib.code.len(), lib.infra.len(), lib.recon.len(), lib.chains.len(), lib.meta.len());
+                } else if arg.is_empty() {
+                    println!("  max agents: {} (0 = all) — set with /agents <n>, or /agents list for counts", s.max_agents);
+                } else {
+                    s.max_agents = arg.parse().unwrap_or(s.max_agents); println!("  max agents: {}", s.max_agents);
+                }
+            }
             "/clear" => { print!("\x1b[2J\x1b[H"); }
             "/run" | "/go" => {
                 if active.as_ref().map(|a| !a.done.load(Ordering::Relaxed)).unwrap_or(false) {
                     println!("  a run is already active — /status to check, /stop to halt it.");
                 } else {
                     save_session(&s);
-                    match start_background(base, &s, &mut reader, history.clone()).await {
+                    // Multiple comma-separated targets → run sequentially (queue the rest).
+                    let targets = session_targets(&s);
+                    let (first, rest): (Option<String>, Vec<String>) = if targets.len() > 1 {
+                        (Some(targets[0].clone()), targets[1..].to_vec())
+                    } else { (None, Vec::new()) };
+                    queue = rest;
+                    if !queue.is_empty() {
+                        println!("  \x1b[1;35m▶ multi-target\x1b[0m: {} URLs — running sequentially", targets.len());
+                    }
+                    match start_background(base, &s, &mut reader, history.clone(), first.as_deref()).await {
                         Some(a) => { active = Some(a); println!("  \x1b[1;35m▶ running in background\x1b[0m — keep typing · \x1b[36m/status\x1b[0m · \x1b[36m/stop\x1b[0m"); }
                         None => { // no external printer (piped) → blocking fallback
                             let mut h = history.lock().unwrap();
                             run(base, &s, &mut h).await; save_runs(base, &h);
+                            queue.clear();
                         }
                     }
                 }
@@ -510,6 +582,8 @@ pub async fn repl(base: &Path) -> anyhow::Result<()> {
                         for x in &f { println!("  • [{}] {} \x1b[2m({} · {})\x1b[0m", x.severity, x.title, x.agent, x.endpoint); }
                         if !f.is_empty() { println!("  \x1b[2m/finding — pick one to see the command & PoC\x1b[0m"); }
                     }
+                    // No arg + interactive → the full navigation browser (target → vuln → detail, Esc back).
+                    _ if arg.is_empty() && std::io::stdin().is_terminal() => browse_results(&history.lock().unwrap()),
                     _ => results(&history.lock().unwrap(), arg),
                 }
             }
@@ -667,6 +741,7 @@ async fn run(base: &Path, s: &Session, history: &mut Vec<RunRecord>) {
     cfg.models = s.models.clone();
     cfg.subscription = s.subscription;
     cfg.vote_n = s.vote_n;
+    cfg.chain_depth = s.chain_depth;
     cfg.max_agents = s.max_agents;
     cfg.verbose = true;
     cfg.offline = s.offline;
@@ -705,17 +780,21 @@ async fn run(base: &Path, s: &Session, history: &mut Vec<RunRecord>) {
 /// external printer while the REPL keeps accepting commands (/status, /stop).
 /// Returns None when no external printer is available (piped) → caller blocks.
 async fn start_background(base: &Path, s: &Session, reader: &mut Reader,
-                          history: Arc<Mutex<Vec<RunRecord>>>) -> Option<ActiveRun> {
-    let (target, mode_s, mode_e, mcp) = match (&s.repo, &s.target) {
+                          history: Arc<Mutex<Vec<RunRecord>>>, target_override: Option<&str>) -> Option<ActiveRun> {
+    // `target_override` runs one specific URL (used by the multi-target queue).
+    let ov = target_override.map(|t| t.to_string());
+    let (target, mode_s, mode_e, mcp) = match (&s.repo, ov.as_ref().or(s.target.as_ref())) {
         (Some(_), Some(t)) => (t.clone(), "greybox", crate::Mode::Grey, s.mcp),
         (Some(r), None) => (r.clone(), "white-box", crate::Mode::White, false),
         (None, Some(t)) => (t.clone(), "black-box", crate::Mode::Black, s.mcp),
         _ => { println!("  \x1b[31m✗ set a /target <url> and/or /repo <path> first.\x1b[0m"); return None; }
     };
+    let idle_secs = s.idle_secs;
     let mut cfg = RunConfig::new(&target);
     cfg.models = s.models.clone();
     cfg.subscription = s.subscription;
     cfg.vote_n = s.vote_n;
+    cfg.chain_depth = s.chain_depth;
     cfg.max_agents = s.max_agents;
     cfg.verbose = true;
     cfg.offline = s.offline;
@@ -740,28 +819,52 @@ async fn start_background(base: &Path, s: &Session, reader: &mut Reader,
     let fallback = sp.fallback.clone();
     let done = Arc::new(AtomicBool::new(false));
     let choice = Arc::new(Mutex::new(StopMode::Run));
+    let soft_task = soft.clone(); // idle guardrail triggers a soft-stop (validate)
+    let cancel_task = cancel.clone();
     let (live2, done2, hist2, choice2) = (live.clone(), done.clone(), history, choice.clone());
 
     tokio::spawn(async move {
         let crate::Spawned { task, mut rx, workdir, .. } = sp;
         let mut last_saved = 0usize;
-        while let Some(line) = rx.recv().await {
-            live2.lock().unwrap().ingest(&line);
-            if let Some(out) = crate::render_compact(&line) { let _ = printer.print(out); }
-            // Checkpoint live findings to disk whenever a new one lands, so the
-            // run survives a quit/crash and is recovered on next launch.
-            let snap = {
-                let l = live2.lock().unwrap();
-                if l.full.len() != last_saved {
-                    last_saved = l.full.len();
-                    Some(LiveCheckpoint {
-                        target: l.target.clone(), mode: l.mode.into(), phase: l.phase.clone(),
-                        workdir: workdir.display().to_string(),
-                        findings: l.full.clone(), commands: l.commands.clone(),
-                    })
-                } else { None }
-            };
-            if let Some(c) = snap { save_checkpoint(&c); }
+        let mut last_find = Instant::now(); // time of the last NEW finding
+        let mut idle_fired = false;
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(15));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                maybe = rx.recv() => {
+                    let Some(line) = maybe else { break };
+                    live2.lock().unwrap().ingest(&line);
+                    if let Some(out) = crate::render_compact(&line) { let _ = printer.print(out); }
+                    // Checkpoint on each new finding; also resets the idle clock.
+                    let snap = {
+                        let l = live2.lock().unwrap();
+                        if l.full.len() != last_saved {
+                            last_saved = l.full.len();
+                            last_find = Instant::now();
+                            Some(LiveCheckpoint {
+                                target: l.target.clone(), mode: l.mode.into(), phase: l.phase.clone(),
+                                workdir: workdir.display().to_string(),
+                                findings: l.full.clone(), commands: l.commands.clone(),
+                            })
+                        } else { None }
+                    };
+                    if let Some(c) = snap { save_checkpoint(&c); }
+                }
+                _ = ticker.tick() => {
+                    // Idle guardrail: no NEW finding within the window → soft-stop
+                    // (stop launching exploit agents, validate what was found).
+                    if idle_secs > 0 && !idle_fired && last_find.elapsed().as_secs() >= idle_secs
+                        && !soft_task.load(Ordering::Relaxed) && !cancel_task.load(Ordering::Relaxed) {
+                        idle_fired = true;
+                        *choice2.lock().unwrap() = StopMode::Validate;
+                        soft_task.store(true, Ordering::Relaxed);
+                        let _ = printer.print(format!(
+                            "\x1b[33m⏹ idle guardrail: no new finding in {} min — stopping & validating what was found\x1b[0m",
+                            idle_secs / 60));
+                    }
+                }
+            }
         }
         let task_out = task.await.unwrap_or_default();
         let mode_choice = *choice2.lock().unwrap();
@@ -907,7 +1010,24 @@ fn results(history: &[RunRecord], arg: &str) {
 }
 
 fn open_report(history: &[RunRecord], arg: &str) {
-    let Some(r) = pick(history, arg) else { return };
+    if history.is_empty() { println!("  no runs yet — /run first."); return; }
+    // No arg + multiple runs + interactive → let the user pick which report.
+    let chosen: Option<&RunRecord> = if arg.trim().is_empty() && history.len() > 1 && std::io::stdin().is_terminal() {
+        let items: Vec<String> = history.iter().map(|r| {
+            let c = sev_counts(&r.findings);
+            let sev = if c.is_empty() { "0 findings".into() } else { c.iter().map(|(k, v)| format!("{k}:{v}")).collect::<Vec<_>>().join(" ") };
+            format!("#{} {:<9} {:<40} [{}]", r.id, r.mode, trunc(&r.target, 40), sev)
+        }).collect();
+        match dialoguer::Select::with_theme(&ColorfulTheme::default())
+            .with_prompt("Select a report to open (↑/↓, enter, Esc)")
+            .items(&items).default(items.len() - 1).interact_opt() {
+            Ok(Some(i)) => history.get(i),
+            _ => return,
+        }
+    } else {
+        pick(history, arg)
+    };
+    let Some(r) = chosen else { return };
     let dir = Path::new(&r.workdir);
     let pdf = dir.join("report.pdf");
     let file = if pdf.is_file() { pdf } else { dir.join("report.html") };
@@ -1020,7 +1140,11 @@ fn finding_detail(pool: &[Finding]) {
             Ok(Some(i)) => i, _ => return,
         }
     } else { 0 };
-    let x = &f[idx];
+    print_finding_detail(&f[idx]);
+}
+
+/// Full detail card for one finding.
+fn print_finding_detail(x: &Finding) {
     println!("\n  ┌─ \x1b[1m{}\x1b[0m", x.title);
     println!("  │  severity   : {}", x.severity);
     println!("  │  cwe / cvss : {} · {}", x.cwe, x.cvss);
@@ -1036,6 +1160,49 @@ fn finding_detail(pool: &[Finding]) {
     println!("  ├─ Remediation");
     for l in x.remediation.lines() { println!("  │  {l}"); }
     println!("  └─────");
+}
+
+/// Interactive results browser: pick a target/run → pick a vulnerability → see
+/// full detail. Esc steps back a level (vuln list → target list → exit to REPL).
+fn browse_results(history: &[RunRecord]) {
+    if history.is_empty() { println!("  no runs yet — /run first."); return; }
+    if !std::io::stdin().is_terminal() { results(history, ""); return; }
+    loop {
+        // Level 1 — pick a run/target.
+        let run_items: Vec<String> = history.iter().map(|r| {
+            let c = sev_counts(&r.findings);
+            let sev = if c.is_empty() { "0".into() } else { c.iter().map(|(k, v)| format!("{k}:{v}")).collect::<Vec<_>>().join(" ") };
+            format!("#{} {:<9} {:<40} [{}]", r.id, r.mode, trunc(&r.target, 40), sev)
+        }).collect();
+        let ri = match dialoguer::Select::with_theme(&ColorfulTheme::default())
+            .with_prompt("Results — select a target/run (Esc to return to the session)")
+            .items(&run_items).default(run_items.len().saturating_sub(1)).interact_opt() {
+            Ok(Some(i)) => i,
+            _ => { println!("  ← back to session"); return; }
+        };
+        let r = &history[ri];
+        if r.findings.is_empty() { println!("  run #{} — no validated findings.", r.id); continue; }
+        let mut f = r.findings.clone();
+        f.sort_by_key(|x| sev_rank(&x.severity));
+        // Level 2 — pick a vulnerability (Esc → back to target list).
+        loop {
+            let items: Vec<String> = f.iter().map(|x| format!("[{}] {} — {}", x.severity, x.title, x.cwe)).collect();
+            let fi = match dialoguer::Select::with_theme(&ColorfulTheme::default())
+                .with_prompt(format!("#{} {} — select a vulnerability (Esc = back)", r.id, trunc(&r.target, 36)))
+                .items(&items).default(0).interact_opt() {
+                Ok(Some(i)) => i,
+                _ => break, // Esc → back to target list
+            };
+            print_finding_detail(&f[fi]);
+            // Enter → back to the vuln list; Esc → back to the target list.
+            match dialoguer::Select::with_theme(&ColorfulTheme::default())
+                .with_prompt("↵ back to vulnerabilities · Esc = back to targets")
+                .items(&["back"]).default(0).interact_opt() {
+                Ok(None) => break,
+                _ => {}
+            }
+        }
+    }
 }
 
 fn run_status(history: &[RunRecord], arg: &str) {
@@ -1062,7 +1229,16 @@ fn show(s: &Session) {
     println!("  │  auth     : {}", s.auth.clone().unwrap_or_else(|| "(none)".into()));
     println!("  │  creds    : {}", s.creds.clone().unwrap_or_else(|| "(none)".into()));
     println!("  │  focus    : {}", s.instructions.clone().unwrap_or_else(|| "(none — tests everything)".into()));
-    println!("  │  opts     : mcp={} offline={} votes={} max-agents={}", onoff(s.mcp), onoff(s.offline), s.vote_n, s.max_agents);
+    println!("  │  opts     : mcp={} offline={} votes={} chain-depth={} max-agents={} idle-stop={}",
+        onoff(s.mcp), onoff(s.offline), s.vote_n, s.chain_depth, s.max_agents,
+        if s.idle_secs == 0 { "off".to_string() } else { format!("{}m", s.idle_secs / 60) });
+    // Integrations at a glance (see /integrations for detail).
+    {
+        let ig = harness::integrations::Integrations::load(&proj_dir());
+        let on: Vec<&str> = [(ig.github.enabled, "github"), (ig.gitlab.enabled, "gitlab"), (ig.jira.enabled, "jira")]
+            .iter().filter(|(e, _)| *e).map(|(_, n)| *n).collect();
+        println!("  │  integr.  : {}", if on.is_empty() { "(none — /integrations)".into() } else { on.join(", ") });
+    }
     // API-key status for the providers your selected models need.
     if !s.subscription {
         let provs: std::collections::BTreeSet<String> = s.models.iter()
@@ -1084,7 +1260,7 @@ fn help() {
     println!("\n  \x1b[1mNeuroSploit REPL — commands\x1b[0m");
 
     println!("\n  \x1b[2mTARGET & SCOPE\x1b[0m");
-    h("/target <url>",      "black-box target URL");
+    h("/target <url[,..]>", "black-box target URL (comma-separated = multi-target, sequential)");
     h("/repo <path>",       "analyse a repo (repo + target = greybox: code + live)");
     h("/auth <value>",      "auth header, e.g. 'Authorization: Bearer <jwt>' (no arg = show)");
     h("/creds <file.yaml>", "credentials: jwt/header/cookie/login + ssh/windows");
@@ -1111,8 +1287,10 @@ fn help() {
 
     println!("\n  \x1b[2mOPTIONS\x1b[0m");
     h("/mcp on|off",        "Playwright MCP browser    /offline on|off  self-test");
-    h("/votes <n>",         "validator votes           /agents <n>  cap agents");
-    h("/theme color|mono",  "/show (config)            /clear        /quit");
+    h("/votes <n>",         "validator votes           /chain <n>   attack-chain depth");
+    h("/timeout <min>",     "idle guardrail: stop if no new finding in <min> (0 = off)");
+    h("/agents <n>|list",   "cap agents · list counts  /theme color|mono");
+    h("/show (config)",     "/clear                    /quit");
 
     println!("\n  \x1b[2mMODES — black-box: set /target · white-box: set /repo · grey-box: set BOTH /repo + /target · host: /target <ip> + /creds\x1b[0m");
     println!("  \x1b[2mFindings are checkpointed live to .neurosploit/ — quit/crash mid-run and they're recovered into /runs next launch.\x1b[0m");
@@ -1187,9 +1365,19 @@ fn context_prompt(s: &Session) -> String {
     };
     let tgt = s.target.clone().or_else(|| s.repo.clone()).unwrap_or_default();
     let tgt = if tgt.is_empty() { String::new() } else { format!("▸{}", tgt.replace("https://", "").replace("http://", "")) };
-    format!(
-        "\x1b[2m{model} {auth} · {cwd} · {mode}{tgt}\x1b[0m\n\x1b[35mneurosploit›\x1b[0m "
-    )
+    // Dim context line, printed ABOVE the prompt (not part of the readline prompt,
+    // so its ANSI/newline never corrupts rustyline's cursor math).
+    format!("\x1b[2m{model} {auth} · {cwd} · {mode}{tgt}\x1b[0m")
+}
+
+/// The actual readline prompt — plain text so rustyline measures its width
+/// correctly; color is applied by the Highlighter, not embedded here.
+const PROMPT: &str = "neurosploit› ";
+
+/// Split the session target into one or more URLs (comma-separated list).
+fn session_targets(s: &Session) -> Vec<String> {
+    s.target.as_deref().map(|t| t.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect())
+        .unwrap_or_default()
 }
 
 fn onoff(b: bool) -> &'static str { if b { "on" } else { "off" } }
