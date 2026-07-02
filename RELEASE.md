@@ -1,7 +1,7 @@
 # NeuroSploit v3.5.5 — Release Notes
 
 **Release Date:** July 2026
-**Codename:** Cloud Testing & REPL polish
+**Codename:** Cloud Testing, REPL Navigation & Deeper Recon
 **License:** MIT
 **Credits:** Joas A Santos & Red Team Leaders
 
@@ -10,37 +10,67 @@
 ## TL;DR
 
 v3.5.5 adds **cloud infrastructure testing** (AWS / GCP / Azure) with first-class
-credential connection, **17 new cloud agents**, and a nicer REPL.
+credential connection and **17 new cloud agents**, a much more capable and
+navigable **REPL** (idle guardrail, multi-target, results browser), **deeper
+recon** (downloads & analyzes JS, request/response differentials), and a fix for
+garbled interactive line-editing.
 
-## Highlights
+## Cloud testing
 
-- **Cloud test agents (+17 → library now 365 agents).** AWS, GCP and Azure
-  specialists in `agents_md/infra/` covering IAM privilege escalation, storage
-  exposure (S3 / GCS / Blob), compute & network exposure, secrets (Secrets
-  Manager / Secret Manager / Key Vault), service-account & service-principal
-  abuse, and Entra ID enumeration — plus a multi-cloud footprint/identity recon
-  agent. They drive the provider CLIs read-only-first, non-destructive.
-- **Connect cloud credentials via `creds.yaml`.** New `aws:`, `gcp:`, `azure:`
-  blocks. The harness exports the right env vars so `aws` / `gcloud` / `az` pick
-  them up automatically, and injects a directive telling the agents how to
-  authenticate and what to enumerate:
+- **+17 cloud agents (library now 365).** AWS, GCP and Azure specialists in
+  `agents_md/infra/`: IAM/RBAC privilege escalation, storage exposure
+  (S3 / GCS / Blob), compute & network exposure + IMDS, secrets (Secrets Manager /
+  Secret Manager / Key Vault), service-account & service-principal abuse, and
+  Entra ID enumeration — plus a multi-cloud footprint/identity recon agent.
+  Read-only-first, non-destructive.
+- **Connect cloud credentials via `creds.yaml`** (`aws:`, `gcp:`, `azure:`
+  blocks). The harness exports the right env vars so `aws` / `gcloud` / `az` pick
+  them up automatically, and tells the agents how to authenticate & what to
+  enumerate:
   - **AWS** — `access_key_id`/`secret_access_key`[/`session_token`]/`region`, or a `profile`.
-  - **GCP** — a service-account JSON (`service_account_json`, path recommended;
-    inline single-line also works) → `GOOGLE_APPLICATION_CREDENTIALS` + project.
+  - **GCP** — a service-account JSON (`service_account_json`, path recommended) →
+    `GOOGLE_APPLICATION_CREDENTIALS` + project.
   - **Azure** — a **service principal** (`tenant_id`/`client_id`/`client_secret`/
-    `subscription_id`) → `az login --service-principal` (best practice for
-    non-interactive automation).
-- **REPL polish.** New **`/chain <n>`** (attack-chain depth) and **`/agents list`**
-  (library category counts incl. infra/cloud); **`/show`** now displays
-  chain-depth and enabled integrations; help updated.
-- Cloud creds are never written to disk beyond your `creds.yaml`; inline GCP JSON
-  is materialized to a temp file only to satisfy the SDK/CLI.
+    `subscription_id`) → `az login --service-principal`.
+  - Secrets are never written to disk beyond your `creds.yaml`; inline GCP JSON is
+    materialized to a temp file only to satisfy the SDK/CLI.
+
+## REPL — navigation & control
+
+- **Idle guardrail — `/timeout <min>`.** If no NEW finding lands within the
+  window, the run soft-stops and validates what was found (`/timeout 1` = 1 min,
+  `10` = 10 min, `60` = 1 hour, `0` = off). **Default 5 min.**
+- **Multiple targets — `/target url1,url2,url3`.** A comma-separated list; `/run`
+  tests them **sequentially** (a queue auto-advances to the next when the current
+  finishes) — one report per URL.
+- **`/results` navigation browser** (interactive): pick a **target/run** → pick a
+  **vulnerability** → see full detail; **Esc steps back a level** (vuln → target →
+  back to the live session).
+- **`/report` selection**: with multiple runs, choose which report to open from a
+  menu.
+- **`/chain <n>`** (attack-chain depth), **`/agents list`** (library category
+  counts incl. infra/cloud); **`/show`** now shows chain-depth, idle-stop and
+  enabled integrations.
+- **Fix:** the interactive prompt no longer embeds ANSI/newline, so line editing
+  (typing, backspace, history, cursor, multiline) is no longer garbled in a real
+  terminal (the readline prompt is plain; color is applied via the highlighter).
+
+## Deeper recon & analysis (agent prompts)
+
+- **RECON_SYS** now crawls pages/params/headers/cookies, **downloads the linked
+  JavaScript and analyzes it** (API endpoints, hidden params, GraphQL, secrets /
+  keys / tokens, `sourceMappingURL` → recover original source), fingerprints
+  **exact** stack versions, and does response-differential analysis; richer JSON
+  schema (`js_findings`, `secrets`, `hosts`, …).
+- **tool_doctrine** adds JS-analysis (linkfinder / gau / katana + grep for
+  endpoints/secrets/source-maps) and request/response-analysis guidance (status,
+  all headers, Set-Cookie flags, timing/length differentials, auth-vs-anon and
+  valid-vs-invalid comparisons) — applied to both recon and exploitation.
 
 ## Notes
 
-- Additive/back-compatible. Provider count is now 14 (Azure OpenAI added in
-  v3.5.2). See the README "Cloud credentials" section for a full `creds.yaml`
-  example.
+- Additive/back-compatible. Provider count is 14 (Azure OpenAI added in v3.5.2).
+  See the README "Cloud credentials" section for a full `creds.yaml` example.
 
 ---
 

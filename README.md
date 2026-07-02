@@ -24,14 +24,17 @@
 >
 > 📖 **New here? Read the [full Tutorial & User Guide →](TUTORIAL.md)** — every mode, flag, config and example explained.
 
-> 🆕 **New in v3.5.5 — Robust attack chaining + fewer false positives:** a
-> multi-round, decision-driven **post-exploitation** engine takes each confirmed
-> foothold and expands new directions (cred reuse, privesc, lateral movement,
-> exfil, new surface), carrying **loot** forward across rounds (`--chain-depth`).
-> Validation is now **severity-aware** (High/Critical need ≥2 validators & ≥2/3
-> agreement) with an **adversarial refute pass** that drops findings that can't
-> withstand a skeptic.
-> *(v3.5.3 added GitHub/GitLab/Jira **[integrations](TUTORIAL-INTEGRATION.md)**; v3.5.2 the DEPTH doctrine + report-hygiene pass — see [RELEASE.md](RELEASE.md).)*
+> 🆕 **New in v3.5.5 — Cloud testing + REPL navigation + deeper recon:**
+> **AWS/GCP/Azure** agents (+17 → **365** total) with credentials wired through
+> `creds.yaml`; a more navigable **REPL** — **`/timeout`** idle guardrail,
+> **multi-target** `/target a,b,c` (sequential), an interactive **`/results`**
+> browser (target → vuln → detail, Esc to go back) and **`/report`** picker; and
+> **deeper recon** that downloads & analyzes JavaScript (endpoints, secrets,
+> source maps) and does request/response differential analysis. Interactive
+> line-editing prompt bug fixed.
+> *(v3.5.4 added robust attack chaining + false-positive reduction; v3.5.3
+> GitHub/GitLab/Jira **[integrations](TUTORIAL-INTEGRATION.md)**; v3.5.2 the DEPTH
+> doctrine + report-hygiene — see [RELEASE.md](RELEASE.md).)*
 
 ---
 
