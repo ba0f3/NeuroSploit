@@ -40,12 +40,18 @@ per-foothold pivot engine:
 
 - **Robust verdict parsing** (`pool::parse_verdict`) — whitespace-insensitive,
   checks explicit rejection first, counts only explicit confirmations; ambiguous
-  replies are *not* counted as confirmed.
+  replies are *not* counted as confirmed. Replaces the fragile exact-JSON /
+  loose-`yes` matching.
 - **Severity-aware quorum** (`pool::quorum_confirmed`) — **High/Critical now need
-  ≥2 validators AND ≥2/3 agreement**; lower severities need a strict majority.
+  ≥2 validators AND ≥2/3 agreement** (a single vote can no longer confirm a
+  Critical); lower severities need a strict majority. Single-model panels fall
+  back to majority so they aren't nuked.
 - **Adversarial refute pass** — every confirmed High/Critical is re-examined by a
-  skeptical panel; findings that can't withstand a majority of skeptics are dropped.
-- **Stronger validator prompt** with an explicit false-positive checklist.
+  skeptical panel that assumes false-positive; findings that can't withstand a
+  majority of skeptics are dropped.
+- **Stronger validator prompt** with an explicit false-positive checklist
+  (reflected-not-executed, version/banner guesses, self-XSS, error-as-injection,
+  thin evidence, inflated severity).
 
 ## Notes
 

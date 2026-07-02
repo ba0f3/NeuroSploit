@@ -312,12 +312,7 @@ impl ModelPool {
             };
             if let Ok(text) = self.one("validate", m, system, user).await {
                 total += 1;
-                let t = text.to_lowercase();
-                if t.contains("\"verdict\": \"confirmed\"")
-                    || t.trim_start().starts_with("yes")
-                    || t.contains("confirmed: true")
-                    || t.contains("is_real\": true")
-                {
+                if parse_verdict(&text) == Verdict::Confirmed {
                     confirmed += 1;
                 }
             }
@@ -331,5 +326,99 @@ impl ModelPool {
 async fn wait_cancelled(flag: &Arc<AtomicBool>) {
     while !flag.load(Ordering::Relaxed) {
         tokio::time::sleep(Duration::from_millis(120)).await;
+    }
+}
+
+/// A validator's verdict on a candidate finding.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Verdict {
+    Confirmed,
+    Rejected,
+    /// No clear yes/no — treated conservatively as NOT confirmed.
+    Unclear,
+}
+
+/// Robustly parse a validator reply into a verdict. Whitespace-insensitive
+/// (so `{"verdict":"confirmed"}` and `{ "verdict": "confirmed" }` both match),
+/// checks explicit rejection first, and only counts an *explicit* confirmation.
+/// Anything ambiguous is `Unclear` (does not count as confirmed) — biasing the
+/// pipeline against false positives.
+pub fn parse_verdict(text: &str) -> Verdict {
+    let lower = text.to_lowercase();
+    let dense: String = lower.chars().filter(|c| !c.is_whitespace()).collect();
+
+    // Explicit rejection wins (conservative).
+    let rejected = [
+        "\"verdict\":\"rejected\"", "\"verdict\":\"reject\"", "verdict:rejected",
+        "\"is_real\":false", "\"isreal\":false", "\"confirmed\":false", "\"real\":false",
+        "\"exploitable\":false", "\"valid\":false",
+    ];
+    if rejected.iter().any(|k| dense.contains(k)) {
+        return Verdict::Rejected;
+    }
+    // Explicit confirmation.
+    let confirmed = [
+        "\"verdict\":\"confirmed\"", "verdict:confirmed",
+        "\"is_real\":true", "\"isreal\":true", "\"confirmed\":true", "\"real\":true",
+        "\"exploitable\":true", "\"valid\":true",
+    ];
+    if confirmed.iter().any(|k| dense.contains(k)) {
+        return Verdict::Confirmed;
+    }
+    // Fallback: only a leading, unambiguous "yes" counts as confirmation.
+    if lower.trim_start().starts_with("yes") {
+        return Verdict::Confirmed;
+    }
+    Verdict::Unclear
+}
+
+#[cfg(test)]
+mod verdict_tests {
+    use super::*;
+    #[test]
+    fn parses_json_and_prose() {
+        assert_eq!(parse_verdict(r#"{"verdict":"confirmed","reason":"x"}"#), Verdict::Confirmed);
+        assert_eq!(parse_verdict(r#"{ "verdict": "confirmed" }"#), Verdict::Confirmed);
+        assert_eq!(parse_verdict(r#"{ "verdict": "rejected" }"#), Verdict::Rejected);
+        assert_eq!(parse_verdict(r#"{"is_real": false}"#), Verdict::Rejected);
+        assert_eq!(parse_verdict("Yes, the evidence proves RCE."), Verdict::Confirmed);
+        assert_eq!(parse_verdict("This looks theoretical."), Verdict::Unclear); // not counted
+    }
+    #[test]
+    fn rejection_beats_confirmation_when_both_present() {
+        // an answer that says confirmed:false must not be read as confirmed
+        assert_eq!(parse_verdict(r#"{"confirmed": false, "note": "verdict was confirmed earlier"}"#), Verdict::Rejected);
+    }
+    #[test]
+    fn quorum_is_severity_aware() {
+        // high/critical: need >=2 votes AND >=2/3
+        assert!(!quorum_confirmed("High", 1, 2));
+        assert!(quorum_confirmed("High", 2, 2));
+        assert!(quorum_confirmed("Critical", 2, 3));
+        assert!(!quorum_confirmed("Critical", 1, 3));
+        // single validator: majority applies to all
+        assert!(quorum_confirmed("Critical", 1, 1));
+        // low/medium: strict majority (more than half)
+        assert!(quorum_confirmed("Low", 1, 1));
+        assert!(!quorum_confirmed("Medium", 1, 2));
+        assert!(quorum_confirmed("Low", 2, 3));
+        assert!(!quorum_confirmed("Low", 0, 2));
+    }
+}
+
+/// Severity-aware confirmation quorum. False High/Critical findings are the most
+/// costly, so they require ≥2 validators AND ≥2/3 agreement; lower severities
+/// pass on a strict majority (more than half). With only one validator available
+/// (single-model panel) the majority rule applies to all severities.
+pub fn quorum_confirmed(severity: &str, yes: usize, total: usize) -> bool {
+    if total == 0 {
+        return false;
+    }
+    let s = severity.to_lowercase();
+    let high = s.starts_with("crit") || s.starts_with("high");
+    if high && total >= 2 {
+        yes * 3 >= total * 2 // ≥ two-thirds
+    } else {
+        yes * 2 > total // strict majority
     }
 }
