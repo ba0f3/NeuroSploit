@@ -24,11 +24,14 @@
 >
 > 📖 **New here? Read the [full Tutorial & User Guide →](TUTORIAL.md)** — every mode, flag, config and example explained.
 
-> 🆕 **New in v3.5.5 — Cloud testing + REPL polish:** **17 new cloud agents**
-> (AWS/GCP/Azure) drive provider CLIs with first-class `creds.yaml` connection
-> (`aws:`/`gcp:`/`azure:` blocks). REPL adds **`/chain <n>`** and **`/agents list`**;
-> **`/show`** displays chain-depth and integrations.
-> *(v3.5.4 added robust attack chaining + false-positive reduction — see [RELEASE.md](RELEASE.md).)*
+> 🆕 **New in v3.5.5 — Robust attack chaining + fewer false positives:** a
+> multi-round, decision-driven **post-exploitation** engine takes each confirmed
+> foothold and expands new directions (cred reuse, privesc, lateral movement,
+> exfil, new surface), carrying **loot** forward across rounds (`--chain-depth`).
+> Validation is now **severity-aware** (High/Critical need ≥2 validators & ≥2/3
+> agreement) with an **adversarial refute pass** that drops findings that can't
+> withstand a skeptic.
+> *(v3.5.3 added GitHub/GitLab/Jira **[integrations](TUTORIAL-INTEGRATION.md)**; v3.5.2 the DEPTH doctrine + report-hygiene pass — see [RELEASE.md](RELEASE.md).)*
 
 ---
 
@@ -222,7 +225,10 @@ neurosploit host my-cloud-account --creds creds.yaml \
 
 Agents cover IAM privilege-escalation, storage exposure (S3/GCS/Blob), compute &
 network exposure, secrets (Secrets Manager / Secret Manager / Key Vault),
-service-account/SP abuse, and identity enumeration (Entra ID).
+service-account/SP abuse, and identity enumeration (Entra ID). Best-practice
+auth: **AWS** access keys or profile; **GCP** a service-account JSON
+(`GOOGLE_APPLICATION_CREDENTIALS`); **Azure** a service principal
+(`az login --service-principal`).
 
 ---
 
