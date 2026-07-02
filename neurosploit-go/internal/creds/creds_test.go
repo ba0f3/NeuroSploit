@@ -154,4 +154,55 @@ func TestLoginWithJSONToken(t *testing.T) {
 	}
 }
 
+func TestCloudEnvAndInstruction(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "creds.yaml")
+	yaml := `aws:
+  access_key_id: AKIA
+  secret_access_key: secret
+  region: us-east-1
+gcp:
+  service_account_json: /tmp/sa.json
+  project: my-proj
+azure:
+  tenant_id: t1
+  client_id: c1
+  client_secret: s1
+  subscription_id: sub1
+`
+	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+	c := Load(path)
+	if c == nil || c.Cloud == nil {
+		t.Fatal("expected cloud creds")
+	}
+	env := c.CloudEnv()
+	if len(env) < 6 {
+		t.Fatalf("CloudEnv = %v, want several vars", env)
+	}
+	names := c.CloudProviderNames()
+	if len(names) != 3 {
+		t.Fatalf("CloudProviderNames = %v, want AWS/GCP/Azure", names)
+	}
+	inst := c.CloudInstruction()
+	if inst == nil || !strings.Contains(*inst, "AWS ACCESS") || !strings.Contains(*inst, "GCP ACCESS") {
+		t.Errorf("CloudInstruction = %v", inst)
+	}
+}
+
+func TestLoadCloudOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "creds.yaml")
+	yaml := `aws:
+  profile: pentest
+`
+	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if c := Load(path); c == nil || c.Cloud == nil {
+		t.Fatal("cloud-only creds should load")
+	}
+}
+
 func str(s string) *string { return &s }

@@ -29,6 +29,17 @@ func ApplyCreds(ctx context.Context, cfg *types.RunConfig, path string) error {
 		prependInstructions(cfg, *hi)
 		fmt.Fprintf(os.Stderr, "  [*] host credentials loaded (SSH/Windows-AD)\n")
 	}
+	if env := cr.CloudEnv(); len(env) > 0 {
+		for _, kv := range env {
+			_ = os.Setenv(kv[0], kv[1])
+		}
+		names := cr.CloudProviderNames()
+		fmt.Fprintf(os.Stderr, "  [*] cloud credentials loaded (%s) — %d env var(s) exported\n",
+			strings.Join(names, "/"), len(env))
+		if ci := cr.CloudInstruction(); ci != nil {
+			prependInstructions(cfg, *ci)
+		}
+	}
 	if cfg.Auth != nil {
 		return nil
 	}

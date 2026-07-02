@@ -13,7 +13,7 @@ This document tracks the status of the `neurosploit-go` port relative to `neuros
 | `harness/src/hygiene.rs` | `internal/hygiene` | ✅ | Severity calibration and depth/hygiene advisories. |
 | `harness/src/pomdp.rs` | `internal/pomdp` | ✅ | Action selection, VoI, assertion gate. |
 | `harness/src/attack_graph.rs` | `internal/attackgraph` | ✅ | CWE mapping, enrichment, Mermaid/ASCII kill chain. |
-| `harness/src/creds.rs` | `internal/creds` | ✅ | YAML-subset parser, auth header, login flow. |
+| `harness/src/creds.rs` | `internal/creds` | ✅ | YAML-subset parser, auth header, login flow, AWS/GCP/Azure cloud blocks. |
 | `harness/src/models.rs` | `internal/models` | ✅ | 15 providers incl. Cursor CLI; HTTP/CLI chat. |
 | `harness/src/pool.rs` | `internal/pool` | ✅ | Semaphore, failover, pause/resume, voting, `ParseVerdict`, `QuorumConfirmed`. |
 | `harness/src/mcpbridge.rs` (design) | `internal/mcpbridge` | ✅ | Bash allowlist + `mvdan.cc/sh` parse; read/write/web. |
@@ -24,7 +24,7 @@ This document tracks the status of the `neurosploit-go` port relative to `neuros
 | — | `internal/engagement` | ✅ | `ApplyCreds`, `DetectMode`, `NormalizeURL`; shared CLI/REPL/TUI entry. |
 | `harness/src/rl.rs` | `internal/rl` | ✅ | Already implemented (existing). |
 | `app/src/main.rs` | `cmd/neurosploit` | ✅ | `run`, `whitebox`, `greybox`, `host`, `tui`, `agents`, `models`. |
-| `app/src/repl.rs` | `internal/repl` | ✅ | Mode detection (black/white/grey/host), `/creds`, liner history. |
+| `app/src/repl.rs` | `internal/repl` | ✅ | Mode detection, `/creds`, `/chain`, `/agents list`, liner history. |
 | `app/src/tui.rs` | `internal/tui` | ✅ | Mission Control; `--repo` enables greybox mode. |
 | `agents_md/*.md` | `agents_md/*.md` | ✅ | Shared; incremental `Tools`/`Skills`/`Output Schema` metadata. |
 | — | `internal/tools` | ✅ | YAML tool recipes (`toolsdata/`), executor, dangerous-command guard. |
@@ -44,6 +44,7 @@ This document tracks the status of the `neurosploit-go` port relative to `neuros
 7. **Chain engine**: Go mirrors Rust v3.5.4 `attack_chain` (multi-round, per-foothold pivots, loot carry-forward, validate each round). Go chain stages retain tool-loop integration when `auto-tools` is enabled.
 8. **Host recon tool-loop**: Go `RunHost` uses the tools registry for recon when available; Rust uses LLM-only recon.
 9. **REPL host mode**: Go routes to `host` when `/target` is a non-HTTP IP/hostname and `/creds` has ssh/windows blocks. Rust REPL documents this but only implements it via the `host` CLI subcommand.
+10. **v3.5.5 cloud creds**: Go `ApplyCreds` exports cloud env vars and prepends `CloudInstruction()` like Rust; inline GCP JSON written to temp file. Go-only: `ValidatePanel` preflight and `ai.log` debug logging preserved.
 
 ## Greybox / Host parity checklist
 
@@ -51,7 +52,7 @@ This document tracks the status of the `neurosploit-go` port relative to `neuros
 |---|---|
 | `pipeline.RunGreybox` / `RunHost` | ✅ |
 | CLI `greybox` / `host` subcommands | ✅ |
-| `engagement.ApplyCreds` (host SSH/AD + auto-login) | ✅ |
+| `engagement.ApplyCreds` (host SSH/AD + cloud AWS/GCP/Azure + auto-login) | ✅ |
 | `source.Resolve` (GitHub clone) | ✅ |
 | REPL mode detection + `/creds` | ✅ |
 | TUI `--repo` greybox | ✅ |

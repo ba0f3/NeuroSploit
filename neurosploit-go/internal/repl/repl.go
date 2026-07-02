@@ -12,8 +12,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/agents"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/creds"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/engagement"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/integrations"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/models"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pipeline"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pool"
@@ -27,9 +29,10 @@ import (
 type Session struct {
 	Base      string
 	Models    []string
-	MCP       bool
-	VoteN     int
-	MaxAgents int
+	MCP        bool
+	VoteN      int
+	ChainDepth int
+	MaxAgents  int
 	Target    string
 	Repo      string
 	Auth      string
@@ -59,9 +62,10 @@ type RunLive struct {
 // NewSession creates a REPL session with defaults.
 func NewSession() *Session {
 	return &Session{
-		Models:    []string{"anthropic:claude-opus-4-8"},
-		VoteN:     3,
-		MaxAgents: 5,
+		Models:     []string{"anthropic:claude-opus-4-8"},
+		VoteN:      3,
+		ChainDepth: 2,
+		MaxAgents:  5,
 	}
 }
 
@@ -187,8 +191,21 @@ func (s *Session) handle(line string, out io.Writer) error {
 		if mode != "" {
 			modeStr = engagement.ModeLabel(mode)
 		}
-		fmt.Fprintf(out, "mode: %s\ntarget: %s\nrepo: %s\ncreds: %s\nmodels: %v\nmcp: %v\nvote-n: %d\nmax-agents: %d\noffline: %v\n",
-			modeStr, s.Target, s.Repo, s.CredsPath, s.Models, s.MCP, s.VoteN, s.MaxAgents, s.Offline)
+		fmt.Fprintf(out, "mode: %s\ntarget: %s\nrepo: %s\ncreds: %s\nmodels: %v\nmcp: %v\noffline: %v\nvotes: %d\nchain-depth: %d\nmax-agents: %d\n",
+			modeStr, s.Target, s.Repo, s.CredsPath, s.Models, s.MCP, s.Offline, s.VoteN, s.ChainDepth, s.MaxAgents)
+		ig := integrations.Load(ProjDir())
+		var on []string
+		if ig.Github.Enabled {
+			on = append(on, "github")
+		}
+		if ig.Gitlab.Enabled {
+			on = append(on, "gitlab")
+		}
+		if len(on) == 0 {
+			fmt.Fprintln(out, "integrations: (none — /integrations)")
+		} else {
+			fmt.Fprintf(out, "integrations: %s\n", strings.Join(on, ", "))
+		}
 	case "/providers":
 		for _, p := range models.Providers() {
 			fmt.Fprintf(out, "%-12s %s\n", p.Key, p.Label)
@@ -246,11 +263,25 @@ func (s *Session) handle(line string, out io.Writer) error {
 			_, _ = fmt.Sscanf(args[0], "%d", &s.VoteN)
 		}
 		fmt.Fprintf(out, "vote-n: %d\n", s.VoteN)
-	case "/max-agents":
-		if len(args) > 0 {
-			_, _ = fmt.Sscanf(args[0], "%d", &s.MaxAgents)
+	case "/chain":
+		if len(args) == 0 {
+			fmt.Fprintf(out, "attack-chain depth: %d (0 disables) — set with /chain <n>\n", s.ChainDepth)
+		} else {
+			_, _ = fmt.Sscanf(args[0], "%d", &s.ChainDepth)
+			fmt.Fprintf(out, "attack-chain depth: %d\n", s.ChainDepth)
 		}
-		fmt.Fprintf(out, "max-agents: %d\n", s.MaxAgents)
+	case "/agents", "/max-agents":
+		if len(args) > 0 && (args[0] == "list" || args[0] == "ls") {
+			lib := agents.Load(s.Base)
+			fmt.Fprintf(out, "agent library (%d total):\n", lib.Total())
+			fmt.Fprintf(out, "  vulns %d · code %d · infra/cloud %d · recon %d · chains %d · meta %d\n",
+				len(lib.Vulns), len(lib.Code), len(lib.Infra), len(lib.Recon), len(lib.Chains), len(lib.Meta))
+		} else if len(args) == 0 {
+			fmt.Fprintf(out, "max agents: %d (0 = all) — set with /agents <n>, or /agents list for counts\n", s.MaxAgents)
+		} else {
+			_, _ = fmt.Sscanf(args[0], "%d", &s.MaxAgents)
+			fmt.Fprintf(out, "max-agents: %d\n", s.MaxAgents)
+		}
 	case "/run":
 		if s.Target == "" && s.Repo == "" {
 			fmt.Fprintln(out, "set /target <url> and/or /repo <path> first")
@@ -435,6 +466,7 @@ func (s *Session) RunConfig() types.RunConfig {
 	cfg.Models = s.Models
 	cfg.MaxAgents = s.MaxAgents
 	cfg.VoteN = s.VoteN
+	cfg.ChainDepth = s.ChainDepth
 	cfg.Offline = s.Offline
 	if s.Focus != "" {
 		cfg.Instructions = &s.Focus
@@ -455,7 +487,7 @@ func (s *Session) HandleLine(line string, out io.Writer) error {
 
 var commandList = []string{
 	"/help", "/show", "/config", "/providers", "/model", "/target", "/repo", "/auth", "/creds", "/focus",
-	"/offline", "/mcp", "/votes", "/max-agents", "/run", "/stop",
+	"/offline", "/mcp", "/votes", "/chain", "/agents", "/max-agents", "/run", "/stop",
 	"/status", "/results", "/report", "/quit", "/exit",
 }
 
@@ -467,14 +499,16 @@ Available commands:
   /model <m1> [m2..] Set model(s)
   /target <url>      Set live target (black-box or greybox with /repo)
   /repo <path>       Set repository path (white-box alone, greybox with /target)
-  /creds <file.yaml> Credentials (jwt/login/ssh/windows)
+  /creds <file.yaml> Credentials (jwt/login/ssh/windows/aws/gcp/azure)
   /auth <header>     Set auth header
   /focus <text>      Set focus instructions
   Modes: /target only = black-box · /repo only = white-box · both = greybox · /target IP + /creds ssh = host
   /offline           Toggle stub offline harness (no API keys)
   /mcp               Toggle MCP
   /votes <n>         Set vote panel size
-  /max-agents <n>    Set max agents
+  /chain <n>         Attack-chain depth (0 disables)
+  /agents <n>|list   Cap agents or list library counts
+  /max-agents <n>    Alias for /agents <n>
   /run               Start a run
   /stop              Stop current run
   /status            Show run status

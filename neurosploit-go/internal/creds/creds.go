@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -41,6 +42,26 @@ type Win struct {
 	Hash     string `json:"hash"`
 }
 
+// Cloud holds AWS / GCP / Azure credentials for cloud-infra testing.
+type Cloud struct {
+	AWSAccessKeyID     string `json:"aws_access_key_id,omitempty"`
+	AWSSecretAccessKey string `json:"aws_secret_access_key,omitempty"`
+	AWSSessionToken    string `json:"aws_session_token,omitempty"`
+	AWSRegion          string `json:"aws_region,omitempty"`
+	AWSProfile         string `json:"aws_profile,omitempty"`
+	GCPServiceAccount  string `json:"gcp_sa_json,omitempty"`
+	GCPProject         string `json:"gcp_project,omitempty"`
+	AzureTenantID      string `json:"azure_tenant_id,omitempty"`
+	AzureClientID      string `json:"azure_client_id,omitempty"`
+	AzureClientSecret  string `json:"azure_client_secret,omitempty"`
+	AzureSubscription  string `json:"azure_subscription_id,omitempty"`
+}
+
+func (c Cloud) isEmpty() bool {
+	return c.AWSAccessKeyID == "" && c.AWSProfile == "" &&
+		c.GCPServiceAccount == "" && c.AzureClientID == ""
+}
+
 // Creds is the loaded credential set from creds.yaml.
 type Creds struct {
 	JWT    *string `json:"jwt,omitempty"`
@@ -49,6 +70,7 @@ type Creds struct {
 	Login  *Login  `json:"login,omitempty"`
 	SSH    *Ssh    `json:"ssh,omitempty"`
 	Win    *Win    `json:"win,omitempty"`
+	Cloud  *Cloud  `json:"cloud,omitempty"`
 }
 
 // Load reads a creds.yaml file and returns the parsed credential set.
@@ -62,6 +84,7 @@ func Load(path string) *Creds {
 	login := Login{Method: "POST"}
 	ssh := Ssh{Port: "22"}
 	win := Win{}
+	cloud := Cloud{}
 	haveLogin, haveSSH, haveWin := false, false, false
 	block := ""
 	for _, raw := range strings.Split(string(text), "\n") {
@@ -87,6 +110,12 @@ func Load(path string) *Creds {
 			case "windows", "win", "ad":
 				haveWin = true
 				block = "windows"
+			case "aws":
+				block = "aws"
+			case "gcp", "google", "gcloud":
+				block = "gcp"
+			case "azure", "az":
+				block = "azure"
 			default:
 				block = ""
 			}
@@ -137,6 +166,37 @@ func Load(path string) *Creds {
 				case "hash", "ntlm":
 					win.Hash = v
 				}
+			case "aws":
+				switch k {
+				case "access_key_id", "access_key", "key":
+					cloud.AWSAccessKeyID = v
+				case "secret_access_key", "secret":
+					cloud.AWSSecretAccessKey = v
+				case "session_token", "token":
+					cloud.AWSSessionToken = v
+				case "region":
+					cloud.AWSRegion = v
+				case "profile":
+					cloud.AWSProfile = v
+				}
+			case "gcp":
+				switch k {
+				case "service_account_json", "sa_json", "key", "keyfile", "credentials":
+					cloud.GCPServiceAccount = v
+				case "project", "project_id":
+					cloud.GCPProject = v
+				}
+			case "azure":
+				switch k {
+				case "tenant_id", "tenant":
+					cloud.AzureTenantID = v
+				case "client_id", "app_id":
+					cloud.AzureClientID = v
+				case "client_secret", "secret", "password":
+					cloud.AzureClientSecret = v
+				case "subscription_id", "subscription":
+					cloud.AzureSubscription = v
+				}
 			}
 			continue
 		}
@@ -159,7 +219,10 @@ func Load(path string) *Creds {
 	if haveWin && win.Host != "" {
 		c.Win = &win
 	}
-	if c.JWT == nil && c.Header == nil && c.Cookie == nil && c.Login == nil && c.SSH == nil && c.Win == nil {
+	if !cloud.isEmpty() {
+		c.Cloud = &cloud
+	}
+	if c.JWT == nil && c.Header == nil && c.Cookie == nil && c.Login == nil && c.SSH == nil && c.Win == nil && c.Cloud == nil {
 		return nil
 	}
 	return &c
@@ -182,6 +245,106 @@ func (c *Creds) AuthHeader() *string {
 		return &s
 	}
 	return nil
+}
+
+// CloudEnv returns environment variables for aws/gcloud/az CLIs. Inline GCP JSON is
+// written to a temp file and the path is returned as GOOGLE_APPLICATION_CREDENTIALS.
+func (c *Creds) CloudEnv() [][2]string {
+	if c == nil || c.Cloud == nil {
+		return nil
+	}
+	cl := c.Cloud
+	var e [][2]string
+	if cl.AWSAccessKeyID != "" {
+		e = append(e, [2]string{"AWS_ACCESS_KEY_ID", cl.AWSAccessKeyID})
+		e = append(e, [2]string{"AWS_SECRET_ACCESS_KEY", cl.AWSSecretAccessKey})
+		if cl.AWSSessionToken != "" {
+			e = append(e, [2]string{"AWS_SESSION_TOKEN", cl.AWSSessionToken})
+		}
+	}
+	if cl.AWSProfile != "" {
+		e = append(e, [2]string{"AWS_PROFILE", cl.AWSProfile})
+	}
+	if cl.AWSRegion != "" {
+		e = append(e, [2]string{"AWS_DEFAULT_REGION", cl.AWSRegion})
+		e = append(e, [2]string{"AWS_REGION", cl.AWSRegion})
+	}
+	if cl.GCPServiceAccount != "" {
+		path := cl.GCPServiceAccount
+		if strings.HasPrefix(strings.TrimSpace(path), "{") {
+			path = filepath.Join(os.TempDir(), "neurosploit-gcp-sa.json")
+			_ = os.WriteFile(path, []byte(cl.GCPServiceAccount), 0600)
+		}
+		e = append(e, [2]string{"GOOGLE_APPLICATION_CREDENTIALS", path})
+	}
+	if cl.GCPProject != "" {
+		e = append(e, [2]string{"GOOGLE_CLOUD_PROJECT", cl.GCPProject})
+		e = append(e, [2]string{"CLOUDSDK_CORE_PROJECT", cl.GCPProject})
+	}
+	if cl.AzureTenantID != "" {
+		e = append(e, [2]string{"AZURE_TENANT_ID", cl.AzureTenantID})
+	}
+	if cl.AzureClientID != "" {
+		e = append(e, [2]string{"AZURE_CLIENT_ID", cl.AzureClientID})
+	}
+	if cl.AzureClientSecret != "" {
+		e = append(e, [2]string{"AZURE_CLIENT_SECRET", cl.AzureClientSecret})
+	}
+	if cl.AzureSubscription != "" {
+		e = append(e, [2]string{"AZURE_SUBSCRIPTION_ID", cl.AzureSubscription})
+		e = append(e, [2]string{"ARM_SUBSCRIPTION_ID", cl.AzureSubscription})
+	}
+	return e
+}
+
+// CloudProviderNames returns which cloud providers have credentials configured.
+func (c *Creds) CloudProviderNames() []string {
+	if c == nil || c.Cloud == nil {
+		return nil
+	}
+	cl := c.Cloud
+	var names []string
+	if cl.AWSAccessKeyID != "" || cl.AWSProfile != "" {
+		names = append(names, "AWS")
+	}
+	if cl.GCPServiceAccount != "" {
+		names = append(names, "GCP")
+	}
+	if cl.AzureClientID != "" {
+		names = append(names, "Azure")
+	}
+	return names
+}
+
+// CloudInstruction returns a directive describing available cloud credentials.
+func (c *Creds) CloudInstruction() *string {
+	if c == nil || c.Cloud == nil {
+		return nil
+	}
+	cl := c.Cloud
+	var s strings.Builder
+	if cl.AWSAccessKeyID != "" || cl.AWSProfile != "" {
+		region := ""
+		if cl.AWSRegion != "" {
+			region = fmt.Sprintf(" (region %s)", cl.AWSRegion)
+		}
+		fmt.Fprintf(&s, "AWS ACCESS: credentials are set in the environment%s. Use the `aws` CLI to enumerate and test the account — start with `aws sts get-caller-identity`, then IAM (users/roles/policies, privilege escalation paths), S3 (public/misconfigured buckets), EC2/SG, Lambda, Secrets Manager. Read-only enumeration first; never destructive.\n", region)
+	}
+	if cl.GCPServiceAccount != "" {
+		project := ""
+		if cl.GCPProject != "" {
+			project = fmt.Sprintf(" (project %s)", cl.GCPProject)
+		}
+		fmt.Fprintf(&s, "GCP ACCESS: a service account is available via $GOOGLE_APPLICATION_CREDENTIALS%s. Run `gcloud auth activate-service-account --key-file=$GOOGLE_APPLICATION_CREDENTIALS` first, then enumerate with `gcloud`/`gsutil` — IAM bindings & privilege escalation, buckets, compute, service accounts/keys, Cloud Functions.\n", project)
+	}
+	if cl.AzureClientID != "" {
+		s.WriteString("AZURE ACCESS: a service principal is set in the environment. Authenticate with `az login --service-principal -u $AZURE_CLIENT_ID -p $AZURE_CLIENT_SECRET --tenant $AZURE_TENANT_ID`, then enumerate with `az` — role assignments (RBAC) & escalation, storage accounts/containers, VMs, Key Vaults, managed identities.\n")
+	}
+	if s.Len() == 0 {
+		return nil
+	}
+	out := s.String()
+	return &out
 }
 
 // HostInstruction returns a directive describing host credentials available to agents.
