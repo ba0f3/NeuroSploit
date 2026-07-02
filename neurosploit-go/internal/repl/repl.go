@@ -27,18 +27,18 @@ import (
 
 // Session holds interactive REPL configuration.
 type Session struct {
-	Base      string
-	Models    []string
+	Base       string
+	Models     []string
 	MCP        bool
 	VoteN      int
 	ChainDepth int
 	MaxAgents  int
-	Target    string
-	Repo      string
-	Auth      string
-	Focus     string
-	CredsPath string
-	Offline   bool
+	Target     string
+	Repo       string
+	Auth       string
+	Focus      string
+	CredsPath  string
+	Offline    bool
 
 	mu      sync.Mutex
 	running bool
