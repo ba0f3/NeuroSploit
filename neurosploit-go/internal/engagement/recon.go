@@ -35,7 +35,7 @@ func PrepareRecon(cfg *types.RunConfig, progress chan<- string) error {
 		return err
 	}
 	if policy == types.ReconPolicyAsk {
-		policy, err = reconcache.PromptReuse(bundle, func() []reconcache.RunEntry {
+		policy, bundle, err = reconcache.PromptReuse(bundle, func() []reconcache.RunEntry {
 			return reconcache.ListRuns("runs", slug, 10)
 		})
 		if err != nil {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
@@ -46,28 +47,78 @@ func Resolve(cfg types.RunConfig, bundle *Bundle, tty bool) (types.ReconPolicy, 
 	}
 }
 
-func PromptReuse(bundle *Bundle, listRuns func() []RunEntry) (types.ReconPolicy, error) {
+func PromptReuse(defaultBundle *Bundle, listRuns func() []RunEntry) (types.ReconPolicy, *Bundle, error) {
+	var listed []RunEntry
+	selected := defaultBundle
 	for {
 		warn := ""
-		if bundle.StaleWarning() {
+		if selected != nil && selected.StaleWarning() {
 			warn = " [stale: >7 days]"
 		}
-		tools := len(bundle.Manifest.Tools)
+		tools := 0
+		from := "unknown"
+		slug := "target"
+		age := "unknown"
+		if selected != nil {
+			tools = len(selected.Manifest.Tools)
+			from = selected.SourceRunBase()
+			slug = selected.Slug
+			age = FormatAge(selected.Age())
+		}
 		fmt.Fprintf(os.Stderr,
 			"Found recon for %s (%s, %d tools, from %s)%s\n[R] Reuse  [N] New scan  [L] List prior runs  [Q] Quit\n> ",
-			bundle.Slug, FormatAge(bundle.Age()), tools, bundle.SourceRunBase(), warn)
+			slug, age, tools, from, warn)
 		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-		switch strings.ToLower(strings.TrimSpace(line)) {
+		choice := strings.TrimSpace(line)
+		switch strings.ToLower(choice) {
 		case "", "r", "reuse":
-			return types.ReconPolicyReuse, nil
-		case "n", "new":
-			return types.ReconPolicyNew, nil
-		case "l", "list":
-			for i, e := range listRuns() {
-				fmt.Fprintf(os.Stderr, "  %d. %s (%s)\n", i+1, filepath.Base(e.Dir), FormatAge(e.Age))
+			if selected == nil {
+				return types.ReconPolicyNew, nil, nil
 			}
+			return types.ReconPolicyReuse, selected, nil
+		case "n", "new":
+			return types.ReconPolicyNew, nil, nil
+		case "l", "list":
+			listed = listRuns()
+			printRunList(listed)
 		case "q", "quit":
 			os.Exit(0)
+		default:
+			if n, ok := ParseRunChoice(choice); ok {
+				if len(listed) == 0 {
+					listed = listRuns()
+				}
+				if n < 1 || n > len(listed) {
+					fmt.Fprintf(os.Stderr, "invalid choice %d (pick 1-%d, or L to list)\n", n, len(listed))
+					continue
+				}
+				b, err := BundleFromRun(listed[n-1].Dir)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "cannot load run: %v\n", err)
+					continue
+				}
+				selected = b
+				return types.ReconPolicyReuse, selected, nil
+			}
 		}
 	}
+}
+
+func printRunList(listed []RunEntry) {
+	if len(listed) == 0 {
+		fmt.Fprintln(os.Stderr, "  (no prior runs with recon.json)")
+		return
+	}
+	for i, e := range listed {
+		fmt.Fprintf(os.Stderr, "  %d. %s (%s)\n", i+1, filepath.Base(e.Dir), FormatAge(e.Age))
+	}
+	fmt.Fprintln(os.Stderr, "Enter 1-N to reuse that run, or R/N/Q")
+}
+
+func ParseRunChoice(s string) (int, bool) {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < 1 {
+		return 0, false
+	}
+	return n, true
 }

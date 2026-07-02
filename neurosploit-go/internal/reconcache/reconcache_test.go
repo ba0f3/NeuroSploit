@@ -70,6 +70,18 @@ func TestFindBundle(t *testing.T) {
 	}
 }
 
+func TestParseRunChoice(t *testing.T) {
+	if n, ok := reconcache.ParseRunChoice("2"); !ok || n != 2 {
+		t.Fatalf("got %d ok=%v", n, ok)
+	}
+	if _, ok := reconcache.ParseRunChoice("0"); ok {
+		t.Fatal("0 should not parse")
+	}
+	if _, ok := reconcache.ParseRunChoice("abc"); ok {
+		t.Fatal("abc should not parse")
+	}
+}
+
 func TestFindLatestRun(t *testing.T) {
 	runsRoot := t.TempDir()
 	slug := "example.com"
@@ -86,6 +98,27 @@ func TestFindLatestRun(t *testing.T) {
 	b, err := reconcache.FindLatestRun(runsRoot, slug)
 	if err != nil || b.Dir != newDir {
 		t.Fatalf("want newest run %s got %v err=%v", newDir, b, err)
+	}
+}
+
+func TestListRunsOrdering(t *testing.T) {
+	runsRoot := t.TempDir()
+	slug := "example.com"
+	for _, name := range []string{"ns-1000-" + slug, "ns-2000-" + slug} {
+		d := filepath.Join(runsRoot, name)
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "recon.json"), []byte(`{"endpoints":["http://example.com/"]}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list := reconcache.ListRuns(runsRoot, slug, 10)
+	if len(list) != 2 {
+		t.Fatalf("got %d runs", len(list))
+	}
+	if filepath.Base(list[0].Dir) != "ns-2000-"+slug {
+		t.Fatalf("newest first: %s", list[0].Dir)
 	}
 }
 
