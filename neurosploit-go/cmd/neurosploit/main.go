@@ -444,9 +444,13 @@ func runEngagement(ctx context.Context, cfg types.RunConfig, mcp bool, mode stri
 		}
 	}()
 
-	out := engagement.Execute(ctx, base, cfg, mode, mcp, stub, progress)
+	out, err := engagement.Execute(ctx, base, cfg, mode, mcp, stub, progress)
 	close(progress)
 	<-done
+
+	if err != nil {
+		return err
+	}
 
 	printFindings(out.Findings)
 	if len(out.Artifacts) > 0 {

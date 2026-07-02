@@ -367,10 +367,18 @@ func (s *Session) backgroundRun(ctx context.Context, out io.Writer, mode string)
 	if s.Offline {
 		stub = &offlineStub{}
 	}
-	outRun := engagement.Execute(ctx, s.Base, cfg, mode, mcp, stub, progress)
+	outRun, err := engagement.Execute(ctx, s.Base, cfg, mode, mcp, stub, progress)
 	close(progress)
 
 	s.mu.Lock()
+	if err != nil {
+		if s.live != nil {
+			s.live.Phase = "error"
+		}
+		s.mu.Unlock()
+		fmt.Fprintf(out, "run failed: %v\n", err)
+		return
+	}
 	if s.live != nil {
 		s.live.Findings = outRun.Findings
 		s.live.Workdir = outRun.Workdir

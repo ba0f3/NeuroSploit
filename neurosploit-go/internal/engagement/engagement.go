@@ -81,15 +81,28 @@ func PrepareWorkdir(base string, cfg *types.RunConfig) (string, error) {
 
 // Execute runs the pipeline for the given mode and returns output.
 // progress receives live status lines; stub bypasses live model calls when non-nil.
-func Execute(ctx context.Context, base string, cfg types.RunConfig, mode string, mcp bool, stub pipeline.PoolCaller, progress chan<- string) pipeline.RunOutput {
+func Execute(ctx context.Context, base string, cfg types.RunConfig, mode string, mcp bool, stub pipeline.PoolCaller, progress chan<- string) (pipeline.RunOutput, error) {
 	lib := agents.Load(base)
 	if _, err := PrepareWorkdir(base, &cfg); err != nil {
 		if progress != nil {
 			progress <- fmt.Sprintf("error: %v", err)
 		}
-		return pipeline.RunOutput{Target: cfg.Target}
+		return pipeline.RunOutput{Target: cfg.Target}, err
 	}
 	workdir := *cfg.Workdir
+
+	if stub == nil {
+		var refs []models.ModelRef
+		for _, s := range cfg.Models {
+			refs = append(refs, models.ModelRefParse(s))
+		}
+		if err := models.ValidatePanel(refs); err != nil {
+			if progress != nil {
+				progress <- fmt.Sprintf("error: %v", err)
+			}
+			return pipeline.RunOutput{Target: cfg.Target, Workdir: workdir}, err
+		}
+	}
 
 	var p pipeline.PoolCaller
 	if stub != nil {
@@ -129,27 +142,27 @@ func Execute(ctx context.Context, base string, cfg types.RunConfig, mode string,
 			if progress != nil {
 				progress <- fmt.Sprintf("playbook load error: %v", err)
 			}
-			return pipeline.RunOutput{Target: cfg.Target}
+			return pipeline.RunOutput{Target: cfg.Target, Workdir: workdir}, err
 		}
 		pb, ok := pbReg.Get(cfg.Playbook)
 		if !ok {
 			if progress != nil {
 				progress <- fmt.Sprintf("playbook %q not found", cfg.Playbook)
 			}
-			return pipeline.RunOutput{Target: cfg.Target}
+			return pipeline.RunOutput{Target: cfg.Target, Workdir: workdir}, fmt.Errorf("playbook %q not found", cfg.Playbook)
 		}
-		return pipeline.RunPlaybook(ctx, cfg, lib, p, pb, progress)
+		return pipeline.RunPlaybook(ctx, cfg, lib, p, pb, progress), nil
 	}
 
 	switch mode {
 	case "whitebox":
-		return pipeline.RunWhitebox(ctx, cfg, lib, p, progress)
+		return pipeline.RunWhitebox(ctx, cfg, lib, p, progress), nil
 	case "greybox":
-		return pipeline.RunGreybox(ctx, cfg, lib, p, progress)
+		return pipeline.RunGreybox(ctx, cfg, lib, p, progress), nil
 	case "host":
-		return pipeline.RunHost(ctx, cfg, lib, p, progress)
+		return pipeline.RunHost(ctx, cfg, lib, p, progress), nil
 	default:
-		return pipeline.Run(ctx, cfg, lib, p, progress)
+		return pipeline.Run(ctx, cfg, lib, p, progress), nil
 	}
 }
 

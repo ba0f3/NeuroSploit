@@ -18,6 +18,7 @@ type progressMsg string
 
 type doneMsg struct {
 	out pipeline.RunOutput
+	err error
 }
 
 type findingRow struct {
@@ -121,8 +122,11 @@ func (m *model) listenProgress() tea.Cmd {
 
 func (m *model) runEngagement(ctx context.Context) tea.Cmd {
 	return func() tea.Msg {
-		out := engagement.Execute(ctx, m.base, m.cfg, m.mode, m.mcp, nil, m.progress)
+		out, err := engagement.Execute(ctx, m.base, m.cfg, m.mode, m.mcp, nil, m.progress)
 		close(m.progress)
+		if err != nil {
+			return doneMsg{err: err}
+		}
 		return doneMsg{out: out}
 	}
 }
@@ -278,6 +282,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.listenProgress()
 	case doneMsg:
 		m.done = true
+		if msg.err != nil {
+			m.phase = "error"
+			m.feed = append(m.feed, fmt.Sprintf("error: %v", msg.err))
+			return m, nil
+		}
 		m.phase = "complete"
 		if len(m.targets) > 0 {
 			m.targets[0].state = "done"
