@@ -81,6 +81,47 @@ func extractFindings(text, agent string) []types.Finding {
 	return out
 }
 
+// FindingKey returns a dedup / identity key for a finding (cwe|endpoint|title-prefix).
+func FindingKey(f types.Finding) string {
+	title := f.Title
+	runes := []rune(strings.ToLower(title))
+	if len(runes) > 40 {
+		runes = runes[:40]
+	}
+	return fmt.Sprintf("%s|%s|%s", strings.ToLower(f.CWE), strings.ToLower(f.Endpoint), string(runes))
+}
+
+// ExtractChain parses a chain agent reply into (new findings, loot).
+// Accepts {"findings":[...],"loot":[...]} and falls back to a bare findings array.
+func ExtractChain(text, agent string) ([]types.Finding, []string) {
+	text = stripCodeFences(text)
+	a := strings.Index(text, "{")
+	b := strings.LastIndex(text, "}")
+	if a >= 0 && b > a {
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(text[a:b+1]), &obj); err == nil {
+			if _, ok := obj["findings"]; ok {
+				var findings []types.Finding
+				if v, ok := obj["findings"]; ok {
+					if b, err := json.Marshal(v); err == nil {
+						findings = extractFindings(string(b), agent)
+					}
+				}
+				var loot []string
+				if v, ok := obj["loot"].([]any); ok {
+					for _, item := range v {
+						if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+							loot = append(loot, s)
+						}
+					}
+				}
+				return findings, loot
+			}
+		}
+	}
+	return extractFindings(text, agent), nil
+}
+
 // isNegativeFinding drops probe logs and confirmed-absence reports masquerading as findings.
 func isNegativeFinding(f types.Finding) bool {
 	title := strings.ToLower(strings.TrimSpace(f.Title))
@@ -213,12 +254,7 @@ func dedupFindings(v []types.Finding) []types.Finding {
 	seen := make(map[string]bool)
 	var out []types.Finding
 	for _, f := range v {
-		titleKey := f.Title
-		runes := []rune(strings.ToLower(titleKey))
-		if len(runes) > 40 {
-			runes = runes[:40]
-		}
-		key := fmt.Sprintf("%s|%s|%s", strings.ToLower(f.CWE), strings.ToLower(f.Endpoint), string(runes))
+		key := FindingKey(f)
 		if seen[key] {
 			continue
 		}

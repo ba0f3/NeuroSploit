@@ -53,7 +53,7 @@ func Providers() []Provider {
 		{Key: "litellm", Label: "LiteLLM (proxy)", BaseURL: "http://localhost:4000/v1", EnvKey: "LITELLM_API_KEY", Kind: "api",
 			Models: []string{"gpt-4o", "claude-3-7-sonnet", "gemini/gemini-2.5-pro"}},
 		{Key: "openrouter", Label: "OpenRouter", BaseURL: "https://openrouter.ai/api/v1", EnvKey: "OPENROUTER_API_KEY", Kind: "api",
-			Models: []string{"anthropic/claude-opus-4-8", "qwen/qwen-2.5-coder-32b-instruct", "deepseek/deepseek-v4-pro", "meta-llama/llama-3.3-70b-instruct"}},
+			Models: []string{"anthropic/claude-fable-5", "anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5", "anthropic/claude-sonnet-4.6", "openai/gpt-5.5", "z-ai/glm-5.2", "moonshotai/kimi-k2.6", "qwen/qwen3.7-plus", "qwen/qwen3.7-max", "minimax/minimax-m3", "deepseek/deepseek-v4-pro", "nvidia/nemotron-3-ultra-550b-a55b", "nvidia/nemotron-3-ultra-550b-a55b:free"}},
 		{Key: "azure", Label: "Azure OpenAI", BaseURL: "", EnvKey: "AZURE_OPENAI_API_KEY", Kind: "api",
 			Models: []string{"gpt-4o", "gpt-4o-mini", "gpt-5.1", "o4-mini"}},
 		{Key: "ollama", Label: "Ollama (local)", BaseURL: "http://localhost:11434/v1", EnvKey: "OLLAMA_API_KEY", Kind: "api",

@@ -51,6 +51,7 @@ func (l *Loop) Run(ctx context.Context, system, user string, toolList []tools.To
 		l.MaxRepairAttempts = 2
 	}
 	invalidCounts := map[string]int{}
+	executedFingerprints := map[string]int{}
 	toolsByName := map[string]tools.Tool{}
 	for _, t := range toolList {
 		toolsByName[t.Name] = t
@@ -101,6 +102,10 @@ func (l *Loop) Run(ctx context.Context, system, user string, toolList []tools.To
 				history += "\n\n" + formatNormalizationObservation(call, validation)
 			}
 			call.Args = validation.Args
+			key := callFingerprint(call)
+			if executedFingerprints[key] >= 1 {
+				return l.synthesizeFinal(ctx, fullSystem, history, observations)
+			}
 			l.emit(fmt.Sprintf("tool run: %s", call.Name))
 			callCtx := tools.ContextWithIteration(ctx, i+1)
 			result, err := l.Executor.Execute(callCtx, call)
@@ -110,6 +115,7 @@ func (l *Loop) Run(ctx context.Context, system, user string, toolList []tools.To
 			l.emit(formatToolProgress(call.Name, result))
 			observations = append(observations, Observation{Call: call, Result: result})
 			history += "\n\n" + formatObservation(call, result)
+			executedFingerprints[key]++
 		}
 	}
 	l.emit(fmt.Sprintf("toolloop done: %d tool(s) executed", len(observations)))
@@ -241,6 +247,25 @@ func invalidFingerprint(call tools.ToolCall, issues []tools.ValidationIssue) str
 		fmt.Fprintf(&b, "|%s=%s:%s", issue.Parameter, issue.Code, issue.Received)
 	}
 	return b.String()
+}
+
+func callFingerprint(call tools.ToolCall) string {
+	b, _ := json.Marshal(call.Args)
+	return call.Name + "|" + string(b)
+}
+
+func (l *Loop) synthesizeFinal(ctx context.Context, fullSystem, history string, observations []Observation) (string, []Observation, error) {
+	l.emit("toolloop synthesizing final answer (duplicate tool calls)")
+	prompt := history + "\n\nSTOP: Do not call more tools. Use the observations above. Reply with your final answer only."
+	response, err := l.Caller.Call(ctx, fullSystem, prompt, nil)
+	if err != nil {
+		return "", observations, err
+	}
+	if calls := parseToolCalls(response); len(calls) > 0 {
+		return history, observations, fmt.Errorf("model requested tools during synthesis")
+	}
+	l.emit(fmt.Sprintf("toolloop final answer (%d tool(s) executed)", len(observations)))
+	return response, observations, nil
 }
 
 var toolCallTagRe = regexp.MustCompile(`<tool_call>\s*(\{.*?\})\s*</tool_call>`)

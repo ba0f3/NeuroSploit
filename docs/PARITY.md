@@ -6,7 +6,7 @@ This document tracks the status of the `neurosploit-go` port relative to `neuros
 
 | Rust crate/path | Go package | Status | Notes |
 |-----------------|------------|--------|-------|
-| `harness/src/types.rs` | `internal/types` | ✅ | `Finding` and `RunConfig` with identical JSON fields. |
+| `harness/src/types.rs` | `internal/types` | ✅ | `Finding` and `RunConfig` with identical JSON fields (incl. `chain_depth`). |
 | `harness/src/agents.rs` | `internal/agents` | ✅ | Markdown loader with six categories, title/CWE/prompt extraction. |
 | `harness/src/belief.rs` | `internal/belief` | ✅ | World model, entropy, observe, frontier, confidence. |
 | `harness/src/grounding.rs` | `internal/grounding` | ✅ | Empirical/symbolic receipt gate. |
@@ -15,7 +15,7 @@ This document tracks the status of the `neurosploit-go` port relative to `neuros
 | `harness/src/attack_graph.rs` | `internal/attackgraph` | ✅ | CWE mapping, enrichment, Mermaid/ASCII kill chain. |
 | `harness/src/creds.rs` | `internal/creds` | ✅ | YAML-subset parser, auth header, login flow. |
 | `harness/src/models.rs` | `internal/models` | ✅ | 15 providers incl. Cursor CLI; HTTP/CLI chat. |
-| `harness/src/pool.rs` | `internal/pool` | ✅ | Semaphore, failover, pause/resume, voting. |
+| `harness/src/pool.rs` | `internal/pool` | ✅ | Semaphore, failover, pause/resume, voting, `ParseVerdict`, `QuorumConfirmed`. |
 | `harness/src/mcpbridge.rs` (design) | `internal/mcpbridge` | ✅ | Bash allowlist + `mvdan.cc/sh` parse; read/write/web. |
 | `harness/src/report.rs` | `internal/report` | ✅ | HTML report for persist. |
 | `harness/src/pipeline.rs` | `internal/pipeline` | ✅ | Run/Whitebox/Greybox/Host orchestration; recon→select→exploit→vote→chain. |
@@ -31,7 +31,7 @@ This document tracks the status of the `neurosploit-go` port relative to `neuros
 | — | `internal/toolloop` | ✅ | ReAct loop; native `tool_calls` + `<tool_call>` fallback. |
 | — | `internal/skills` | ✅ | `skills_md/` loader and prompt injection. |
 | — | `internal/playbooks` | ✅ | YAML playbook engine with phased execution. |
-| — | `internal/chainengine` | ✅ | Stateful chain stages with precondition checks and early stop. |
+| — | `internal/chainengine` | ✅ | v3.5.4 multi-round attack chaining with loot carry-forward and per-round validation. |
 
 ## Deviation Log
 
@@ -41,7 +41,7 @@ This document tracks the status of the `neurosploit-go` port relative to `neuros
 4. **REPL**: Go uses `peterh/liner` (line editing, tab completion, `.neurosploit/history`). Default `neurosploit` with no subcommand starts the REPL.
 5. **CLI `--offline`**: Go stub mode runs the full pipeline with canned responses (self-test); Rust `cfg.offline` skips live exploitation.
 6. **Tools/skills/playbooks**: Go-only extensions — `toolsdata/`, `skills_md/`, `playbooks/` with ReAct toolloop. Rust harness uses inline shell doctrine only.
-7. **Chain engine**: Go runs chain agents sequentially with precondition matching and early stop; Rust uses a single chain LLM round.
+7. **Chain engine**: Go mirrors Rust v3.5.4 `attack_chain` (multi-round, per-foothold pivots, loot carry-forward, validate each round). Go chain stages retain tool-loop integration when `auto-tools` is enabled.
 8. **Host recon tool-loop**: Go `RunHost` uses the tools registry for recon when available; Rust uses LLM-only recon.
 9. **REPL host mode**: Go routes to `host` when `/target` is a non-HTTP IP/hostname and `/creds` has ssh/windows blocks. Rust REPL documents this but only implements it via the `host` CLI subcommand.
 

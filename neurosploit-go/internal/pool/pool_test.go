@@ -170,3 +170,53 @@ func TestResolveCLITimeout(t *testing.T) {
 		t.Fatalf("tool-timeout extends cli = %v", got)
 	}
 }
+
+func TestParseVerdict(t *testing.T) {
+	tests := []struct {
+		text string
+		want Verdict
+	}{
+		{`{"verdict":"confirmed","reason":"x"}`, VerdictConfirmed},
+		{`{ "verdict": "confirmed" }`, VerdictConfirmed},
+		{`{ "verdict": "rejected" }`, VerdictRejected},
+		{`{"is_real": false}`, VerdictRejected},
+		{"Yes, the evidence proves RCE.", VerdictConfirmed},
+		{"This looks theoretical.", VerdictUnclear},
+		{`{"confirmed": false, "note": "verdict was confirmed earlier"}`, VerdictRejected},
+	}
+	for _, tc := range tests {
+		if got := ParseVerdict(tc.text); got != tc.want {
+			t.Errorf("ParseVerdict(%q) = %v, want %v", tc.text, got, tc.want)
+		}
+	}
+}
+
+func TestQuorumConfirmed(t *testing.T) {
+	if QuorumConfirmed("High", 1, 2) {
+		t.Error("High 1/2 should not confirm")
+	}
+	if !QuorumConfirmed("High", 2, 2) {
+		t.Error("High 2/2 should confirm")
+	}
+	if !QuorumConfirmed("Critical", 2, 3) {
+		t.Error("Critical 2/3 should confirm")
+	}
+	if QuorumConfirmed("Critical", 1, 3) {
+		t.Error("Critical 1/3 should not confirm")
+	}
+	if !QuorumConfirmed("Critical", 1, 1) {
+		t.Error("single-model Critical 1/1 should confirm")
+	}
+	if !QuorumConfirmed("Low", 1, 1) {
+		t.Error("Low 1/1 should confirm")
+	}
+	if QuorumConfirmed("Medium", 1, 2) {
+		t.Error("Medium 1/2 should not confirm")
+	}
+	if !QuorumConfirmed("Low", 2, 3) {
+		t.Error("Low 2/3 should confirm")
+	}
+	if QuorumConfirmed("Low", 0, 2) {
+		t.Error("Low 0/2 should not confirm")
+	}
+}

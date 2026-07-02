@@ -103,12 +103,9 @@ func Run(ctx context.Context, cfg types.RunConfig, lib agents.Library, p PoolCal
 
 	findings := validate(candidates, p, voteSys, cfg.VoteN, progress)
 	chained := runChainEngine(ctx, cfg, p, recon, findings, lib.Chains, progress, mcpOn)
-	if len(chained) > 0 {
-		extra := validate(dedupFindings(chained), p, voteSys, cfg.VoteN, progress)
-		sendProgress(progress, fmt.Sprintf("chaining added %d validated finding(s)", len(extra)))
-		findings = append(findings, extra...)
-		findings = dedupFindings(findings)
-	}
+	findings = append(findings, chained...)
+	findings = dedupFindings(findings)
+	findings = refutePass(findings, p, cfg.VoteN, progress)
 	return finish(cfg, recon, transcript, toolLog, findings, selected, &rlState, progress)
 }
 
@@ -357,44 +354,101 @@ func parallelExploit(ctx context.Context, cfg types.RunConfig, selected []agents
 }
 
 func runChainEngine(ctx context.Context, cfg types.RunConfig, p PoolCaller, recon string, confirmed []types.Finding, chains []agents.Agent, progress chan<- string, mcpOn bool) []types.Finding {
-	if len(confirmed) == 0 {
-		return nil
-	}
-	sendProgress(progress, fmt.Sprintf("chaining %d confirmed finding(s) for deeper impact…", len(confirmed)))
 	doctrine := reactDoctrine + depthDoctrine + toolDoctrine(mcpOn)
+	caller := &chainSeedCaller{
+		pool:       p,
+		cfg:        cfg,
+		mcpOn:      mcpOn,
+		target:     cfg.Target,
+		directives: operatorDirectives(cfg),
+		recon:      recon,
+		doctrine:   doctrine,
+	}
 	engine := &chainengine.Engine{
-		Caller: &chainStageCaller{pool: p, cfg: cfg, mcpOn: mcpOn},
-		ParseFindings: func(text, agent string) []types.Finding {
-			return extractFindings(text, agent)
-		},
+		Caller:   caller,
 		Progress: progress,
 	}
 	return engine.Run(ctx, chainengine.Config{
 		Target:      cfg.Target,
 		Recon:       recon,
 		Directives:  operatorDirectives(cfg),
+		ChainDepth:  cfg.ChainDepth,
 		Confirmed:   confirmed,
 		Chains:      chains,
 		ChainSystem: chainSys,
 		Doctrine:    doctrine,
+		Validate: func(candidates []types.Finding) []types.Finding {
+			return validate(candidates, p, voteSys, cfg.VoteN, progress)
+		},
+		FindingKey:   FindingKey,
+		ExtractChain: ExtractChain,
+		Dedup:        dedupFindings,
 	})
 }
 
-type chainStageCaller struct {
-	pool  PoolCaller
-	cfg   types.RunConfig
-	mcpOn bool
+type chainSeedCaller struct {
+	pool       PoolCaller
+	cfg        types.RunConfig
+	mcpOn      bool
+	target     string
+	directives string
+	recon      string
+	doctrine   string
 }
 
-func (c *chainStageCaller) RunStage(ctx context.Context, ag agents.Agent, user string) (string, error) {
-	system := injectSkills(c.pool, ag, chainSys, c.cfg)
-	if (c.cfg.AutoTools || len(ag.Tools) > 0) && c.pool.Tools() != nil && c.pool.Executor() != nil {
-		toolList := selectTools(c.pool.Tools(), "exploit", ag.Tools)
-		text, _, err := runWithToolLoop(ctx, c.pool, "chain:"+ag.Name, pool.TaskExploit, system, user, toolList, nil)
-		return text, err
+func (c *chainSeedCaller) StopExploiting() bool {
+	return c.pool.StopExploiting()
+}
+
+func (c *chainSeedCaller) ChainFromSeed(ctx context.Context, seed types.Finding, loot []string, round, maxRounds int, recipeBlock string) ([]types.Finding, []string, error) {
+	if c.pool.StopExploiting() {
+		return nil, nil, nil
 	}
-	_, text, err := c.pool.Complete("chain:"+ag.Name, pool.TaskExploit, system, user)
-	return text, err
+	lootBlock := "(none yet)"
+	if len(loot) > 0 {
+		var b strings.Builder
+		limit := len(loot)
+		if limit > 30 {
+			limit = 30
+		}
+		for _, l := range loot[:limit] {
+			fmt.Fprintf(&b, "- %s\n", l)
+		}
+		lootBlock = strings.TrimRight(b.String(), "\n")
+	}
+	reconCtx := c.recon
+	if len([]rune(reconCtx)) > 2000 {
+		reconCtx = string([]rune(reconCtx)[:2000])
+	}
+	short := seed.Title
+	if runes := []rune(short); len(runes) > 28 {
+		short = string(runes[:28])
+	}
+	user := fmt.Sprintf(
+		"AUTHORIZED engagement on %s.\n\n%s"+
+			"FOOTHOLD TO EXPAND (round %d/%d):\n- [%s] %s @ %s (%s)\n  payload: %s\n  evidence: %s\n\n"+
+			"LOOT GATHERED (reuse it):\n%s\n\n%sRECON:\n%s\n\n"+
+			"From THIS foothold, DECIDE the best directions and PROVE new impact — post-exploitation (loot creds/keys/config/source), credential reuse, privilege escalation (horizontal & vertical), lateral movement to adjacent services/hosts, data exfiltration, and NEW attack surface it exposes. Every claim needs a real tool receipt.\n\n"+
+			"Reply ONLY JSON: {\"findings\":[{\"id,title,severity,cwe,endpoint,payload,evidence,impact,remediation,confidence}],\"loot\":[\"cred:user:pass@host\",\"token:...\",\"host:10.0.0.5\",\"endpoint:/internal/api\"]} (empty arrays are fine).",
+		c.target, c.directives+c.doctrine, round, maxRounds,
+		seed.Severity, seed.Title, seed.Endpoint, seed.CWE, seed.Payload, seed.Evidence,
+		lootBlock, recipeBlock, reconCtx,
+	)
+	system := injectSkills(c.pool, agents.Agent{Name: "chain"}, chainSys, c.cfg)
+	label := "chain:" + short
+	var text string
+	var err error
+	if c.cfg.AutoTools && c.pool.Tools() != nil && c.pool.Executor() != nil {
+		toolList := selectTools(c.pool.Tools(), "exploit", nil)
+		text, _, err = runWithToolLoop(ctx, c.pool, label, pool.TaskExploit, system, user, toolList, nil)
+	} else {
+		_, text, err = c.pool.Complete(label, pool.TaskExploit, system, user)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	findings, newLoot := ExtractChain(text, "chain")
+	return findings, newLoot, nil
 }
 
 func validate(candidates []types.Finding, p PoolCaller, sys string, voteN int, progress chan<- string) []types.Finding {
@@ -409,10 +463,10 @@ func validate(candidates []types.Finding, p PoolCaller, sys string, voteN int, p
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			q := fmt.Sprintf("Finding: %s | severity %s | %s | at %s | payload %s | evidence %s",
-				f.Title, f.Severity, f.CWE, f.Endpoint, f.Payload, f.Evidence)
+			q := fmt.Sprintf("Finding: %s | severity %s | %s | at %s | payload %s | evidence %s | impact %s",
+				f.Title, f.Severity, f.CWE, f.Endpoint, f.Payload, f.Evidence, f.Impact)
 			yes, total := p.Vote(sys, q, voteN, finder)
-			f.Validated = total > 0 && yes*2 >= total
+			f.Validated = pool.QuorumConfirmed(f.Severity, yes, total)
 			f.Votes = fmt.Sprintf("%d/%d", yes, total)
 			if f.Confidence == 0 && total > 0 {
 				f.Confidence = float64(yes) / float64(total)
@@ -437,6 +491,36 @@ func validate(candidates []types.Finding, p PoolCaller, sys string, voteN int, p
 		}
 	}
 	return out
+}
+
+func refutePass(findings []types.Finding, p PoolCaller, voteN int, progress chan<- string) []types.Finding {
+	finder := primaryModelLabel(p)
+	var kept []types.Finding
+	for _, f := range findings {
+		s := strings.ToLower(f.Severity)
+		high := strings.HasPrefix(s, "crit") || strings.HasPrefix(s, "high")
+		if !high || p.StopExploiting() {
+			kept = append(kept, f)
+			continue
+		}
+		q := fmt.Sprintf("Finding: %s | severity %s | %s | at %s | payload %s | evidence %s | impact %s",
+			f.Title, f.Severity, f.CWE, f.Endpoint, f.Payload, f.Evidence, f.Impact)
+		panel := voteN
+		if panel < 2 {
+			panel = 2
+		}
+		yes, total := p.Vote(refuteSys, q, panel, finder)
+		survives := total == 0 || yes*2 > total
+		if survives {
+			if total > 0 {
+				f.Votes = fmt.Sprintf("%s · refute %d/%d", f.Votes, yes, total)
+			}
+			kept = append(kept, f)
+		} else {
+			sendProgress(progress, fmt.Sprintf("vote %s → dropped by adversarial refute (%d/%d)", f.Title, yes, total))
+		}
+	}
+	return kept
 }
 
 func finish(cfg types.RunConfig, recon, transcript, toolLog string, findings []types.Finding, selected []agents.Agent, rlState *rl.State, progress chan<- string) RunOutput {

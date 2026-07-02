@@ -97,6 +97,8 @@ func TestBuildCommandRequiredMissing(t *testing.T) {
 }
 
 func TestBuildCommandHttpxKali(t *testing.T) {
+	ResetHttpxFlavorCache()
+	t.Setenv("NS_HTTPX_FLAVOR", "python")
 	root := findRepoRoot()
 	if root == "" {
 		t.Skip("repo root not found")
@@ -115,7 +117,7 @@ func TestBuildCommandHttpxKali(t *testing.T) {
 	}
 	got := strings.Join(argv, " ")
 	if strings.Contains(got, "-u ") {
-		t.Fatalf("httpx must not use -u on Kali python httpx, got %q", got)
+		t.Fatalf("python httpx must not use -u, got %q", got)
 	}
 	if !strings.Contains(got, "https://example.com") {
 		t.Fatalf("missing target URL in %q", got)

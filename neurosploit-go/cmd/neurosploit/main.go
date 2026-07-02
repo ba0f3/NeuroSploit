@@ -49,7 +49,7 @@ After recon it selects agents, runs them in parallel, then validates findings by
 
 func runCmd() *cobra.Command {
 	var modelsFlag []string
-	var maxAgents, voteN int
+	var maxAgents, voteN, chainDepth int
 	var offline, subscription, mcp, autoTools, interactive, autoSkills bool
 	var credsPath, focus, playbook, skillsFlag, disableTools string
 	var verbose bool
@@ -67,6 +67,7 @@ func runCmd() *cobra.Command {
 				cfg.MaxAgents = 5
 			}
 			cfg.VoteN = voteN
+			cfg.ChainDepth = chainDepth
 			cfg.Subscription = subscription
 			cfg.Verbose = verbose
 			cfg.AutoTools = autoTools
@@ -97,6 +98,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&modelsFlag, "model", []string{"anthropic:claude-opus-4-8"}, "Models as provider:model")
 	cmd.Flags().IntVar(&maxAgents, "max-agents", 0, "Maximum agents to launch (0 = default 5)")
 	cmd.Flags().IntVar(&voteN, "vote-n", 3, "Cross-model validation panel size")
+	cmd.Flags().IntVar(&chainDepth, "chain-depth", 2, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
 	cmd.Flags().BoolVar(&offline, "offline", false, "Offline self-test using stubbed pool")
 	cmd.Flags().BoolVar(&subscription, "subscription", false, "Use local agentic CLI subscriptions")
 	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable Playwright MCP if available")
@@ -116,7 +118,7 @@ func runCmd() *cobra.Command {
 
 func whiteboxCmd() *cobra.Command {
 	var modelsFlag []string
-	var maxAgents, voteN int
+	var maxAgents, voteN, chainDepth int
 	var subscription, mcp, verbose bool
 	var credsPath string
 
@@ -132,6 +134,7 @@ func whiteboxCmd() *cobra.Command {
 				cfg.MaxAgents = 3
 			}
 			cfg.VoteN = voteN
+			cfg.ChainDepth = chainDepth
 			cfg.Subscription = subscription
 			cfg.Verbose = verbose
 			if err := engagement.ApplyCreds(cmd.Context(), &cfg, credsPath); err != nil {
@@ -143,6 +146,7 @@ func whiteboxCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&modelsFlag, "model", []string{"anthropic:claude-opus-4-8"}, "Models as provider:model")
 	cmd.Flags().IntVar(&maxAgents, "max-agents", 0, "Maximum agents")
 	cmd.Flags().IntVar(&voteN, "vote-n", 2, "Cross-model validation panel size")
+	cmd.Flags().IntVar(&chainDepth, "chain-depth", 2, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
 	cmd.Flags().BoolVar(&subscription, "subscription", false, "Use local CLI subscriptions")
 	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable MCP")
 	cmd.Flags().StringVar(&credsPath, "creds", "", "Path to creds.yaml")
@@ -153,7 +157,7 @@ func whiteboxCmd() *cobra.Command {
 func greyboxCmd() *cobra.Command {
 	var url string
 	var modelsFlag []string
-	var maxAgents, voteN int
+	var maxAgents, voteN, chainDepth int
 	var offline, subscription, mcp, verbose bool
 	var credsPath, focus string
 
@@ -175,6 +179,7 @@ func greyboxCmd() *cobra.Command {
 			if cfg.VoteN == 0 {
 				cfg.VoteN = 3
 			}
+			cfg.ChainDepth = chainDepth
 			cfg.Subscription = subscription
 			cfg.Verbose = verbose
 			if focus != "" {
@@ -194,6 +199,7 @@ func greyboxCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&modelsFlag, "model", []string{"anthropic:claude-opus-4-8"}, "Models as provider:model")
 	cmd.Flags().IntVar(&maxAgents, "max-agents", 0, "Maximum agents to launch")
 	cmd.Flags().IntVar(&voteN, "vote-n", 3, "Cross-model validation panel size")
+	cmd.Flags().IntVar(&chainDepth, "chain-depth", 2, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
 	cmd.Flags().BoolVar(&offline, "offline", false, "Offline self-test using stubbed pool")
 	cmd.Flags().BoolVar(&subscription, "subscription", false, "Use local CLI subscriptions")
 	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable Playwright MCP if available")
@@ -206,7 +212,7 @@ func greyboxCmd() *cobra.Command {
 
 func hostCmd() *cobra.Command {
 	var modelsFlag []string
-	var maxAgents, voteN int
+	var maxAgents, voteN, chainDepth int
 	var offline, subscription, verbose bool
 	var credsPath, focus string
 
@@ -222,6 +228,7 @@ func hostCmd() *cobra.Command {
 			if cfg.VoteN == 0 {
 				cfg.VoteN = 3
 			}
+			cfg.ChainDepth = chainDepth
 			cfg.Subscription = subscription
 			cfg.Verbose = verbose
 			if focus != "" {
@@ -242,6 +249,7 @@ func hostCmd() *cobra.Command {
 	cmd.Flags().StringVar(&focus, "focus", "", "Focus instructions")
 	cmd.Flags().IntVar(&maxAgents, "max-agents", 0, "Maximum infra agents to launch")
 	cmd.Flags().IntVar(&voteN, "vote-n", 3, "Cross-model validation panel size")
+	cmd.Flags().IntVar(&chainDepth, "chain-depth", 2, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
 	cmd.Flags().BoolVar(&offline, "offline", false, "Offline self-test using stubbed pool")
 	cmd.Flags().BoolVar(&subscription, "subscription", false, "Use local CLI subscriptions")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
@@ -250,6 +258,7 @@ func hostCmd() *cobra.Command {
 
 func tuiCmd() *cobra.Command {
 	var modelsFlag []string
+	var chainDepth int
 	var subscription, mcp, verbose bool
 	var repoFlag, credsPath, focus string
 
@@ -272,6 +281,7 @@ func tuiCmd() *cobra.Command {
 			cfg.Models = defaultModels(modelsFlag)
 			cfg.MaxAgents = 5
 			cfg.VoteN = 3
+			cfg.ChainDepth = chainDepth
 			cfg.Subscription = subscription
 			cfg.Verbose = verbose
 			if focus != "" {
@@ -287,6 +297,7 @@ func tuiCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repoFlag, "repo", "", "Source repo path or GitHub URL (greybox mode)")
 	cmd.Flags().StringVar(&credsPath, "creds", "", "Path to creds.yaml")
 	cmd.Flags().StringVar(&focus, "focus", "", "Focus instructions")
+	cmd.Flags().IntVar(&chainDepth, "chain-depth", 2, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
 	cmd.Flags().BoolVar(&subscription, "subscription", false, "Use local CLI subscriptions")
 	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable MCP")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")

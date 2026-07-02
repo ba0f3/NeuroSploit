@@ -385,11 +385,7 @@ func (p *ModelPool) Vote(system, user string, n int, skip string) (int, int) {
 			continue
 		}
 		total++
-		t := strings.ToLower(text)
-		if strings.Contains(t, `"verdict": "confirmed"`) ||
-			strings.HasPrefix(strings.TrimSpace(t), "yes") ||
-			strings.Contains(t, "confirmed: true") ||
-			strings.Contains(t, `is_real": true`) {
+		if ParseVerdict(text) == VerdictConfirmed {
 			confirmed++
 		}
 	}

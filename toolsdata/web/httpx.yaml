@@ -1,25 +1,26 @@
 name: httpx
 command: httpx
+args: ["-silent", "-status-code", "-title", "-tech-detect"]
 enabled: true
-short_description: HTTP client probe (URL as positional argument).
+short_description: HTTP probe (ProjectDiscovery httpx; adapts for Python/Kali httpx on PATH).
 description: |
-  Sends an HTTP request to the target URL. On Debian/Kali /usr/bin/httpx is the
-  Python HTTPX CLI (`httpx URL`). For ProjectDiscovery httpx, ensure ~/go/bin
-  precedes /usr/bin in PATH or use curl/whatweb instead.
+  Probes a URL for status, title, and technologies. Uses ProjectDiscovery httpx
+  (`-u URL`) when that binary is on PATH; otherwise adapts to Python/Kali httpx
+  (positional URL).
 parameters:
   - name: target
     type: string
     description: Full URL to probe (e.g. https://example.com).
     required: true
-    position: 0
-    format: positional
+    flag: -u
+    format: flag
     target_format: url
   - name: follow_redirects
     type: bool
     description: Follow HTTP redirects.
     required: false
     default: true
-    flag: --follow-redirects
+    flag: -follow-redirects
     format: flag
   - name: additional_args
     type: string
@@ -27,5 +28,5 @@ parameters:
     required: false
     format: positional
 timeout: 2m
-install_hint: apt install python3-httpx | go install github.com/projectdiscovery/httpx/cmd/httpx@latest
+install_hint: go install github.com/projectdiscovery/httpx/cmd/httpx@latest | apt install python3-httpx
 tags: [web, recon, http]

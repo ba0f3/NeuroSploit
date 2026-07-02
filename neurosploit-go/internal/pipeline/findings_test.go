@@ -125,3 +125,30 @@ func TestExtractFindingsTilde404Evidence(t *testing.T) {
 		t.Fatalf("got %d findings", len(got))
 	}
 }
+
+func TestExtractChainObjectForm(t *testing.T) {
+	text := `{"findings":[{"title":"Privesc","severity":"High","cwe":"CWE-269","endpoint":"/x","evidence":"uid=0"}],"loot":["token:abc","host:10.0.0.5"]}`
+	fs, loot := ExtractChain(text, "chain")
+	if len(fs) != 1 || fs[0].Title != "Privesc" {
+		t.Fatalf("findings = %+v", fs)
+	}
+	if len(loot) != 2 || loot[0] != "token:abc" {
+		t.Fatalf("loot = %v", loot)
+	}
+}
+
+func TestExtractChainBareArrayFallback(t *testing.T) {
+	text := `[{"title":"RCE","severity":"Critical","cwe":"CWE-94","endpoint":"/x","evidence":"ok"}]`
+	fs, loot := ExtractChain(text, "chain")
+	if len(fs) != 1 || len(loot) != 0 {
+		t.Fatalf("findings=%+v loot=%v", fs, loot)
+	}
+}
+
+func TestFindingKey(t *testing.T) {
+	k1 := FindingKey(types.Finding{CWE: "CWE-89", Endpoint: "/a", Title: "SQL Injection"})
+	k2 := FindingKey(types.Finding{CWE: "cwe-89", Endpoint: "/A", Title: "sql injection"})
+	if k1 != k2 {
+		t.Fatalf("keys differ: %q vs %q", k1, k2)
+	}
+}

@@ -103,6 +103,7 @@ func RunWhitebox(ctx context.Context, cfg types.RunConfig, lib agents.Library, p
 	candidates := dedupFindings(flattenFindings(results))
 	sendProgress(progress, fmt.Sprintf("%d candidate finding(s) (deduped) — validating", len(candidates)))
 	findings := validate(candidates, p, codeVoteSys, cfg.VoteN, progress)
+	findings = refutePass(findings, p, cfg.VoteN, progress)
 	return finish(cfg, "{}", transcript, "", findings, selected, &rlState, progress)
 }
 
@@ -193,12 +194,9 @@ func RunGreybox(ctx context.Context, cfg types.RunConfig, lib agents.Library, p 
 	sendProgress(progress, fmt.Sprintf("%d candidate finding(s) (deduped) — validating", len(candidates)))
 	findings := validate(candidates, p, voteSys, cfg.VoteN, progress)
 	chained := runChainEngine(ctx, cfg, p, recon, findings, lib.Chains, progress, mcpOn)
-	if len(chained) > 0 {
-		extra := validate(dedupFindings(chained), p, voteSys, cfg.VoteN, progress)
-		sendProgress(progress, fmt.Sprintf("chaining added %d validated finding(s)", len(extra)))
-		findings = append(findings, extra...)
-		findings = dedupFindings(findings)
-	}
+	findings = append(findings, chained...)
+	findings = dedupFindings(findings)
+	findings = refutePass(findings, p, cfg.VoteN, progress)
 	return finish(cfg, recon, transcript, toolLog, findings, selected, &rlState, progress)
 }
 
@@ -252,11 +250,9 @@ func RunHost(ctx context.Context, cfg types.RunConfig, lib agents.Library, p Poo
 	sendProgress(progress, fmt.Sprintf("%d candidate finding(s) (deduped) — validating", len(candidates)))
 	findings := validate(candidates, p, voteSys, cfg.VoteN, progress)
 	chained := runChainEngine(ctx, cfg, p, recon, findings, lib.Chains, progress, false)
-	if len(chained) > 0 {
-		extra := validate(dedupFindings(chained), p, voteSys, cfg.VoteN, progress)
-		findings = append(findings, extra...)
-		findings = dedupFindings(findings)
-	}
+	findings = append(findings, chained...)
+	findings = dedupFindings(findings)
+	findings = refutePass(findings, p, cfg.VoteN, progress)
 	return finish(cfg, recon, transcript, toolLog, findings, selected, &rlState, progress)
 }
 

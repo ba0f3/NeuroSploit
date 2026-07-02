@@ -118,9 +118,9 @@ func TestLoopNoToolCalls(t *testing.T) {
 func TestLoopMaxIterations(t *testing.T) {
 	caller := &mockCaller{
 		responses: []string{
-			"<tool_call>{\"name\": \"nmap\", \"arguments\": {\"target\": \"x\"}}</tool_call>",
-			"<tool_call>{\"name\": \"nmap\", \"arguments\": {\"target\": \"x\"}}</tool_call>",
-			"<tool_call>{\"name\": \"nmap\", \"arguments\": {\"target\": \"x\"}}</tool_call>",
+			"<tool_call>{\"name\": \"nmap\", \"arguments\": {\"target\": \"x1\"}}</tool_call>",
+			"<tool_call>{\"name\": \"nmap\", \"arguments\": {\"target\": \"x2\"}}</tool_call>",
+			"<tool_call>{\"name\": \"nmap\", \"arguments\": {\"target\": \"x3\"}}</tool_call>",
 		},
 	}
 	exec := &mockExecutor{
@@ -203,5 +203,32 @@ func TestLoopStopsRepeatedInvalidCalls(t *testing.T) {
 	}
 	if len(exec.calls) != 0 {
 		t.Fatalf("invalid calls must not execute, got %d", len(exec.calls))
+	}
+}
+
+func TestLoopDuplicateCallSynthesizes(t *testing.T) {
+	caller := &mockCaller{responses: []string{
+		`<tool_call>{"name":"httpx","arguments":{"target":"https://example.com"}}</tool_call>`,
+		`<tool_call>{"name":"httpx","arguments":{"target":"https://example.com"}}</tool_call>`,
+		`{"tech":"nginx","endpoints":["/"]}`,
+	}}
+	exec := &recordingExecutor{}
+	loop := &Loop{Caller: caller, Executor: exec, MaxIter: 5}
+	final, obs, err := loop.Run(context.Background(), "Test.", "Probe target", []tools.Tool{
+		{Name: "httpx", Command: "httpx", ShortDescription: "HTTP probe", Parameters: []tools.Parameter{
+			{Name: "target", Type: "string", Required: true, TargetFormat: "url"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(exec.calls) != 1 {
+		t.Fatalf("expected one executed call, got %d", len(exec.calls))
+	}
+	if len(obs) != 1 {
+		t.Fatalf("expected one observation, got %d", len(obs))
+	}
+	if !strings.Contains(final, "nginx") {
+		t.Fatalf("final = %q", final)
 	}
 }

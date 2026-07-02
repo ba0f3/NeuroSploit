@@ -64,11 +64,9 @@ func RunPlaybook(ctx context.Context, cfg types.RunConfig, lib agents.Library, p
 	sendProgress(progress, fmt.Sprintf("playbook produced %d candidate finding(s) — validating", len(candidates)))
 	findings := validate(dedupFindings(candidates), p, voteSys, cfg.VoteN, progress)
 	chained := runChainEngine(ctx, cfg, p, recon, findings, lib.Chains, progress, mcpEnabled(p))
-	if len(chained) > 0 {
-		extra := validate(dedupFindings(chained), p, voteSys, cfg.VoteN, progress)
-		findings = append(findings, extra...)
-		findings = dedupFindings(findings)
-	}
+	findings = append(findings, chained...)
+	findings = dedupFindings(findings)
+	findings = refutePass(findings, p, cfg.VoteN, progress)
 	var rlState rl.State
 	if cfg.RLPath != nil {
 		rlState = rl.Load(*cfg.RLPath)

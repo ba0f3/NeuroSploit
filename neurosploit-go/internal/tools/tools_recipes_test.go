@@ -177,7 +177,17 @@ func assertArgvNotContains(t *testing.T, argv []string, forbidden ...string) {
 var toolArgvChecks = map[string]func(t *testing.T, argv []string){
 	"httpx": func(t *testing.T, argv []string) {
 		assertArgvContains(t, argv, "https://example.com")
-		assertArgvNotContains(t, argv, "-u ", " -u")
+		joined := strings.Join(argv, " ")
+		switch HttpxFlavor() {
+		case httpxProjectDiscovery:
+			if !strings.Contains(joined, "-u") {
+				t.Fatalf("PD httpx missing -u: %q", joined)
+			}
+		default:
+			if strings.Contains(joined, "-u ") {
+				t.Fatalf("python httpx must not use -u: %q", joined)
+			}
+		}
 	},
 	"nmap": func(t *testing.T, argv []string) {
 		assertArgvContains(t, argv, "nmap", "-sV", "-sC", "-Pn")

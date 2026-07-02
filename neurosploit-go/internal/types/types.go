@@ -75,6 +75,8 @@ type RunConfig struct {
 	Skills       []string `json:"skills,omitempty"`
 	DisableTools []string `json:"disable_tools,omitempty"`
 	AutoSkills   bool     `json:"auto_skills,omitempty"`
+	// ChainDepth is how many post-exploitation pivot rounds to run from confirmed findings (0 disables).
+	ChainDepth int `json:"chain_depth"`
 }
 
 // NewRunConfig creates a RunConfig with default values.
@@ -86,5 +88,6 @@ func NewRunConfig(target string) RunConfig {
 		Concurrency: 8,
 		AutoTools:   true,
 		Pinned:      []string{},
+		ChainDepth:  2,
 	}
 }

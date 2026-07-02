@@ -380,7 +380,7 @@ func BuildCommand(tool Tool, args map[string]any) ([]string, error) {
 		}
 	}
 	argv = append(argv, extras...)
-	return argv, nil
+	return adaptToolArgv(tool, argv), nil
 }
 
 var dangerousPatterns = []*regexp.Regexp{

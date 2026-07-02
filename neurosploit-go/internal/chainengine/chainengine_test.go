@@ -2,69 +2,122 @@ package chainengine
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/agents"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
 )
 
-type mockCaller struct {
-	responses []string
-	calls     int
+type mockSeedCaller struct {
+	responses []struct {
+		findings []types.Finding
+		loot     []string
+	}
+	calls int
+	stop  bool
 }
 
-func (m *mockCaller) RunStage(ctx context.Context, agent agents.Agent, user string) (string, error) {
+func (m *mockSeedCaller) StopExploiting() bool { return m.stop }
+
+func (m *mockSeedCaller) ChainFromSeed(ctx context.Context, seed types.Finding, loot []string, round, maxRounds int, recipeBlock string) ([]types.Finding, []string, error) {
 	if m.calls >= len(m.responses) {
-		return "[]", nil
+		return nil, nil, nil
 	}
 	r := m.responses[m.calls]
 	m.calls++
-	return r, nil
+	return r.findings, r.loot, nil
 }
 
-func TestPreconditionsMatch(t *testing.T) {
-	confirmed := []types.Finding{{Title: "SQL Injection", CWE: "CWE-89"}}
-	if !preconditionsMatch([]string{"sqli", "CWE-89"}, confirmed) {
-		t.Fatal("expected sqli precondition to match")
-	}
-	if preconditionsMatch([]string{"ssrf"}, confirmed) {
-		t.Fatal("expected ssrf precondition to miss")
-	}
-	if !preconditionsMatch(nil, confirmed) {
-		t.Fatal("empty preconditions should match")
-	}
-}
-
-func TestEngineStopsEarly(t *testing.T) {
-	caller := &mockCaller{
-		responses: []string{
-			`[{"title":"RCE","severity":"Critical","cwe":"CWE-94","endpoint":"/x","evidence":"uid=0"}]`,
-			`[]`,
+func TestEngineStopsOnEmptyRound(t *testing.T) {
+	caller := &mockSeedCaller{
+		responses: []struct {
+			findings []types.Finding
+			loot     []string
+		}{
+			{findings: []types.Finding{{Title: "RCE", Severity: "Critical", CWE: "CWE-94"}}},
 		},
 	}
-	engine := &Engine{
-		Caller: caller,
-		ParseFindings: func(text, agent string) []types.Finding {
-			if strings.Contains(text, "RCE") {
-				return []types.Finding{{Title: "RCE", Severity: "Critical"}}
-			}
-			return nil
-		},
-	}
-	chains := []agents.Agent{
-		{Name: "stage1", Title: "Stage 1"},
-		{Name: "stage2", Title: "Stage 2"},
-	}
+	validated := 0
+	engine := &Engine{Caller: caller}
 	out := engine.Run(context.Background(), Config{
-		Target:    "http://test",
-		Confirmed: []types.Finding{{Title: "SQLi", CWE: "CWE-89"}},
-		Chains:    chains,
+		ChainDepth: 2,
+		Confirmed:  []types.Finding{{Title: "SQLi", Severity: "High", CWE: "CWE-89"}},
+		Validate: func(candidates []types.Finding) []types.Finding {
+			validated += len(candidates)
+			return candidates
+		},
+		FindingKey: func(f types.Finding) string { return f.Title },
+		ExtractChain: func(text, agent string) ([]types.Finding, []string) {
+			return nil, nil
+		},
 	})
 	if len(out) != 1 {
-		t.Fatalf("expected 1 finding, got %d (calls=%d)", len(out), caller.calls)
+		t.Fatalf("expected 1 validated finding, got %d", len(out))
+	}
+	if caller.calls != 1 {
+		t.Fatalf("expected 1 seed call (round 2 dry), got %d", caller.calls)
+	}
+}
+
+func TestEngineCarriesLootAcrossRounds(t *testing.T) {
+	caller := &mockSeedCaller{
+		responses: []struct {
+			findings []types.Finding
+			loot     []string
+		}{
+			{findings: []types.Finding{{Title: "Stage1", Severity: "High"}}},
+			{findings: []types.Finding{{Title: "Stage2", Severity: "Critical"}}},
+		},
+	}
+	engine := &Engine{Caller: caller}
+	out := engine.Run(context.Background(), Config{
+		ChainDepth: 2,
+		Confirmed:  []types.Finding{{Title: "SQLi", Severity: "High"}},
+		Validate: func(candidates []types.Finding) []types.Finding {
+			return candidates
+		},
+		FindingKey: func(f types.Finding) string { return f.Title },
+		ExtractChain: func(text, agent string) ([]types.Finding, []string) {
+			return nil, nil
+		},
+	})
+	if len(out) != 2 {
+		t.Fatalf("expected 2 chain findings, got %d", len(out))
 	}
 	if caller.calls != 2 {
-		t.Fatalf("expected 2 calls (second returns empty → stop), got %d", caller.calls)
+		t.Fatalf("expected 2 seed calls, got %d", caller.calls)
 	}
+}
+
+func TestEngineZeroDepth(t *testing.T) {
+	engine := &Engine{Caller: &mockSeedCaller{}}
+	out := engine.Run(context.Background(), Config{
+		ChainDepth: 0,
+		Confirmed:  []types.Finding{{Title: "X"}},
+		Validate:   func([]types.Finding) []types.Finding { return nil },
+		FindingKey: func(f types.Finding) string { return f.Title },
+	})
+	if out != nil {
+		t.Fatalf("expected nil for depth 0, got %v", out)
+	}
+}
+
+func TestRecipeBlock(t *testing.T) {
+	block := recipeBlock([]agents.Agent{{Title: "SQLi Agent"}})
+	if block == "" || !contains(block, "SQLi") {
+		t.Fatalf("unexpected recipe block: %q", block)
+	}
+}
+
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(sub) == 0 || indexOf(s, sub) >= 0)
+}
+
+func indexOf(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
 }
