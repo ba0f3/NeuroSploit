@@ -19,6 +19,7 @@ import (
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/models"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pipeline"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pool"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/reconcache"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/skills"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/tools"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/types"
@@ -270,6 +271,8 @@ func (s *Session) handle(line string, out io.Writer) error {
 			_, _ = fmt.Sscanf(args[0], "%d", &s.ChainDepth)
 			fmt.Fprintf(out, "attack-chain depth: %d\n", s.ChainDepth)
 		}
+	case "/recon":
+		s.handleRecon(args, out)
 	case "/agents", "/max-agents":
 		if len(args) > 0 && (args[0] == "list" || args[0] == "ls") {
 			lib := agents.Load(s.Base)
@@ -480,6 +483,57 @@ func (s *Session) RunConfig() types.RunConfig {
 	return cfg
 }
 
+func (s *Session) handleRecon(args []string, out io.Writer) {
+	cacheRoot := types.DefaultReconCachePath
+	if len(args) == 0 {
+		fmt.Fprintln(out, "usage: /recon list [slug] | /recon clear <slug> | /recon import <run-dir>")
+		return
+	}
+	switch args[0] {
+	case "list":
+		slug := ""
+		if len(args) > 1 {
+			slug = args[1]
+		}
+		if slug != "" {
+			if b, err := reconcache.FindBundle(cacheRoot, slug); err == nil {
+				fmt.Fprintf(out, "cache: %s (%s, %d tools)\n", b.Slug, reconcache.FormatAge(b.Age()), len(b.Manifest.Tools))
+			}
+			for i, e := range reconcache.ListRuns("runs", slug, 10) {
+				fmt.Fprintf(out, "  run %d: %s (%s)\n", i+1, filepath.Base(e.Dir), reconcache.FormatAge(e.Age))
+			}
+			return
+		}
+		bundles, _ := reconcache.ListCached(cacheRoot)
+		for _, b := range bundles {
+			fmt.Fprintf(out, "cache: %s (%s)\n", b.Slug, reconcache.FormatAge(b.Age()))
+		}
+	case "clear":
+		if len(args) < 2 {
+			fmt.Fprintln(out, "usage: /recon clear <slug>")
+			return
+		}
+		if err := reconcache.ClearCache(cacheRoot, args[1]); err != nil {
+			fmt.Fprintf(out, "clear failed: %v\n", err)
+			return
+		}
+		fmt.Fprintf(out, "cleared recon cache for %s\n", args[1])
+	case "import":
+		if len(args) < 2 {
+			fmt.Fprintln(out, "usage: /recon import <run-dir>")
+			return
+		}
+		b, err := reconcache.PublishFromRun(cacheRoot, args[1], "")
+		if err != nil {
+			fmt.Fprintf(out, "import failed: %v\n", err)
+			return
+		}
+		fmt.Fprintf(out, "imported recon cache for %s from %s\n", b.Slug, args[1])
+	default:
+		fmt.Fprintln(out, "usage: /recon list [slug] | /recon clear <slug> | /recon import <run-dir>")
+	}
+}
+
 // HandleLine is a convenience for testing.
 func (s *Session) HandleLine(line string, out io.Writer) error {
 	return s.handle(line, out)
@@ -487,7 +541,7 @@ func (s *Session) HandleLine(line string, out io.Writer) error {
 
 var commandList = []string{
 	"/help", "/show", "/config", "/providers", "/model", "/target", "/repo", "/auth", "/creds", "/focus",
-	"/offline", "/mcp", "/votes", "/chain", "/agents", "/max-agents", "/run", "/stop",
+	"/offline", "/mcp", "/votes", "/chain", "/recon", "/agents", "/max-agents", "/run", "/stop",
 	"/status", "/results", "/report", "/quit", "/exit",
 }
 
@@ -507,6 +561,7 @@ Available commands:
   /mcp               Toggle MCP
   /votes <n>         Set vote panel size
   /chain <n>         Attack-chain depth (0 disables)
+  /recon list|clear|import  Recon cache: list [slug], clear <slug>, import <run-dir>
   /agents <n>|list   Cap agents (0 = all) or list library counts
   /max-agents <n>    Alias for /agents <n> (0 = unlimited)
   /run               Start a run

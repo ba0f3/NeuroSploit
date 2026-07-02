@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -16,6 +18,7 @@ import (
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/hygiene"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/models"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/pool"
+	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/reconcache"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/rl"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/skills"
 	"github.com/JoasASantos/NeuroSploit/neurosploit-go/internal/toolloop"
@@ -228,6 +231,13 @@ func toolNames(list []tools.Tool) string {
 }
 
 func runRecon(ctx context.Context, cfg types.RunConfig, p PoolCaller, progress chan<- string, mcpOn bool) (string, string) {
+	if cfg.ResolvedReconDir != "" {
+		recon, toolLog := loadCachedRecon(cfg.ResolvedReconDir)
+		if reconcache.ValidReconJSON(recon) {
+			sendProgress(progress, "recon: loaded from cache (bootstrap skipped)")
+			return recon, toolLog
+		}
+	}
 	if cfg.Offline {
 		sendProgress(progress, "recon: offline mode — skipping model calls")
 		return "{}", ""
@@ -268,7 +278,52 @@ func runRecon(ctx context.Context, cfg types.RunConfig, p PoolCaller, progress c
 		}
 		sendProgress(progress, fmt.Sprintf("  recon> %s", strings.ReplaceAll(snip, "\n", " ")))
 	}
+	publishReconCache(cfg, text, toolLog, progress)
 	return text, toolLog
+}
+
+func loadCachedRecon(workdir string) (recon, toolLog string) {
+	reconBytes, err := os.ReadFile(filepath.Join(workdir, "recon.json"))
+	if err != nil {
+		return "{}", ""
+	}
+	recon = string(reconBytes)
+	if b, err := os.ReadFile(filepath.Join(workdir, "recon_tools.md")); err == nil {
+		toolLog = string(b)
+	}
+	return recon, toolLog
+}
+
+func publishReconCache(cfg types.RunConfig, recon, toolLog string, progress chan<- string) {
+	if cfg.Offline || !reconcache.ValidReconJSON(recon) {
+		return
+	}
+	cacheRoot := cfg.ReconCachePath
+	if cacheRoot == "" {
+		cacheRoot = types.DefaultReconCachePath
+	}
+	workdir := ""
+	if cfg.Workdir != nil {
+		workdir = *cfg.Workdir
+	}
+	if _, err := reconcache.Publish(cacheRoot, workdir, cfg.Target, recon, toolLog, extractToolNamesFromLog(toolLog)); err != nil && cfg.Verbose {
+		sendProgress(progress, fmt.Sprintf("recon cache publish: %v", err))
+	}
+}
+
+func extractToolNamesFromLog(toolLog string) []string {
+	var names []string
+	for _, line := range strings.Split(toolLog, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "## ") {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) >= 2 {
+			names = append(names, parts[1])
+		}
+	}
+	return names
 }
 
 type exploitUserBuilder struct {

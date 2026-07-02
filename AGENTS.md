@@ -65,6 +65,7 @@ The `Makefile` lives in `neurosploit-go/`. It syncs `agents_md/` from the repo r
 | REPL | `internal/repl/repl.go` — liner-based, `.neurosploit/history` for history |
 | TUI | `internal/tui/` — bubbletea Mission Control |
 | Run output | `runs/ns-<ts>-<target>/` — findings.json, recon, transcripts |
+| Recon cache | `data/recon-cache/<slug>/` — local-only; do not commit (may contain engagement target data) |
 | RL state | `data/rl_state_go.json` — agent weight updates |
 | Offline mode | `--offline` flag uses stub pool, no API keys required |
 

@@ -78,6 +78,11 @@ type RunConfig struct {
 	ChainDepth int `json:"chain_depth"`
 	// ToolLoopMaxIter caps ReAct tool-loop rounds per agent (0 = DefaultToolLoopMaxIter).
 	ToolLoopMaxIter int `json:"tool_loop_max_iter,omitempty"`
+	ReconPolicy     ReconPolicy `json:"recon_policy,omitempty"`     // empty = auto (ask on TTY, reuse off TTY)
+	ReconCachePath  string      `json:"recon_cache_path,omitempty"` // empty = DefaultReconCachePath
+	ReconFromRun    string      `json:"recon_from_run,omitempty"`   // bypass cache lookup
+	// ResolvedReconDir is set when recon is imported before pipeline (not serialized).
+	ResolvedReconDir string `json:"-"`
 }
 
 // NewRunConfig creates a RunConfig with default values.

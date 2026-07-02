@@ -52,6 +52,7 @@ func runCmd() *cobra.Command {
 	var maxAgents, voteN, chainDepth, toolLoopMaxIter int
 	var offline, mcp, autoTools, interactive, autoSkills bool
 	var credsPath, focus, playbook, skillsFlag, disableTools string
+	var reconFlag, fromRun, reconCache string
 	var verbose bool
 	var toolTimeout, cliTimeout int
 
@@ -82,6 +83,9 @@ func runCmd() *cobra.Command {
 			if focus != "" {
 				cfg.Instructions = &focus
 			}
+			if err := applyReconFlags(&cfg, reconFlag, fromRun, reconCache); err != nil {
+				return err
+			}
 			if err := engagement.ApplyCreds(cmd.Context(), &cfg, credsPath); err != nil {
 				return err
 			}
@@ -110,6 +114,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&disableTools, "disable-tools", "", "Comma-separated tools to disable")
 	cmd.Flags().IntVar(&toolTimeout, "tool-timeout", 0, "Tool timeout in minutes (0 = recipe default; also extends CLI session if larger)")
 	cmd.Flags().IntVar(&cliTimeout, "cli-timeout", 0, "Subscription/CLI agent session timeout in minutes (0 = 60; use for long sqlmap/nmap runs)")
+	addReconFlags(cmd, &reconFlag, &fromRun, &reconCache)
 	return cmd
 }
 
@@ -118,6 +123,7 @@ func whiteboxCmd() *cobra.Command {
 	var maxAgents, voteN, chainDepth int
 	var mcp, verbose bool
 	var credsPath string
+	var reconFlag, fromRun, reconCache string
 
 	cmd := &cobra.Command{
 		Use:   "whitebox <path|url>",
@@ -130,6 +136,9 @@ func whiteboxCmd() *cobra.Command {
 			cfg.VoteN = voteN
 			cfg.ChainDepth = chainDepth
 			cfg.Verbose = verbose
+			if err := applyReconFlags(&cfg, reconFlag, fromRun, reconCache); err != nil {
+				return err
+			}
 			if err := engagement.ApplyCreds(cmd.Context(), &cfg, credsPath); err != nil {
 				return err
 			}
@@ -143,6 +152,7 @@ func whiteboxCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable MCP")
 	cmd.Flags().StringVar(&credsPath, "creds", "", "Path to creds.yaml")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+	addReconFlags(cmd, &reconFlag, &fromRun, &reconCache)
 	return cmd
 }
 
@@ -152,6 +162,7 @@ func greyboxCmd() *cobra.Command {
 	var maxAgents, voteN, chainDepth int
 	var offline, mcp, verbose bool
 	var credsPath, focus string
+	var reconFlag, fromRun, reconCache string
 
 	cmd := &cobra.Command{
 		Use:   "greybox <repo>",
@@ -176,6 +187,9 @@ func greyboxCmd() *cobra.Command {
 			if focus != "" {
 				cfg.Instructions = &focus
 			}
+			if err := applyReconFlags(&cfg, reconFlag, fromRun, reconCache); err != nil {
+				return err
+			}
 			if err := engagement.ApplyCreds(cmd.Context(), &cfg, credsPath); err != nil {
 				return err
 			}
@@ -197,6 +211,7 @@ func greyboxCmd() *cobra.Command {
 	cmd.Flags().StringVar(&focus, "focus", "", "Focus instructions")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	_ = cmd.MarkFlagRequired("url")
+	addReconFlags(cmd, &reconFlag, &fromRun, &reconCache)
 	return cmd
 }
 
@@ -205,6 +220,7 @@ func hostCmd() *cobra.Command {
 	var maxAgents, voteN, chainDepth int
 	var offline, verbose bool
 	var credsPath, focus string
+	var reconFlag, fromRun, reconCache string
 
 	cmd := &cobra.Command{
 		Use:   "host <target>",
@@ -222,6 +238,9 @@ func hostCmd() *cobra.Command {
 			cfg.Verbose = verbose
 			if focus != "" {
 				cfg.Instructions = &focus
+			}
+			if err := applyReconFlags(&cfg, reconFlag, fromRun, reconCache); err != nil {
+				return err
 			}
 			if err := engagement.ApplyCreds(cmd.Context(), &cfg, credsPath); err != nil {
 				return err
@@ -241,6 +260,7 @@ func hostCmd() *cobra.Command {
 	cmd.Flags().IntVar(&chainDepth, "chain-depth", types.DefaultChainDepth, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
 	cmd.Flags().BoolVar(&offline, "offline", false, "Offline self-test using stubbed pool")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+	addReconFlags(cmd, &reconFlag, &fromRun, &reconCache)
 	return cmd
 }
 
@@ -249,6 +269,7 @@ func tuiCmd() *cobra.Command {
 	var chainDepth int
 	var mcp, verbose bool
 	var repoFlag, credsPath, focus string
+	var reconFlag, fromRun, reconCache string
 
 	cmd := &cobra.Command{
 		Use:   "tui <url>",
@@ -274,6 +295,9 @@ func tuiCmd() *cobra.Command {
 			if focus != "" {
 				cfg.Instructions = &focus
 			}
+			if err := applyReconFlags(&cfg, reconFlag, fromRun, reconCache); err != nil {
+				return err
+			}
 			if err := engagement.ApplyCreds(cmd.Context(), &cfg, credsPath); err != nil {
 				return err
 			}
@@ -287,6 +311,7 @@ func tuiCmd() *cobra.Command {
 	cmd.Flags().IntVar(&chainDepth, "chain-depth", types.DefaultChainDepth, "Attack-chaining rounds (post-exploitation pivots; 0 disables)")
 	cmd.Flags().BoolVar(&mcp, "mcp", false, "Enable MCP")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+	addReconFlags(cmd, &reconFlag, &fromRun, &reconCache)
 	return cmd
 }
 
@@ -427,6 +452,29 @@ func findBase() string {
 		}
 	}
 	return cwd
+}
+
+func addReconFlags(cmd *cobra.Command, reconFlag, fromRun, cachePath *string) {
+	cmd.Flags().StringVar(reconFlag, "recon", "", "Recon policy: new, reuse, ask (default: ask on TTY, reuse off TTY)")
+	cmd.Flags().StringVar(fromRun, "from-run", "", "Import recon from a prior run directory")
+	cmd.Flags().StringVar(cachePath, "recon-cache", "", "Recon cache root (default: data/recon-cache)")
+}
+
+func applyReconFlags(cfg *types.RunConfig, reconFlag, fromRun, reconCache string) error {
+	switch strings.ToLower(strings.TrimSpace(reconFlag)) {
+	case "":
+	case "new":
+		cfg.ReconPolicy = types.ReconPolicyNew
+	case "reuse":
+		cfg.ReconPolicy = types.ReconPolicyReuse
+	case "ask":
+		cfg.ReconPolicy = types.ReconPolicyAsk
+	default:
+		return fmt.Errorf("invalid --recon %q (want new|reuse|ask)", reconFlag)
+	}
+	cfg.ReconFromRun = fromRun
+	cfg.ReconCachePath = reconCache
+	return nil
 }
 
 func runEngagement(ctx context.Context, cfg types.RunConfig, mcp bool, mode string, stub pipeline.PoolCaller) error {

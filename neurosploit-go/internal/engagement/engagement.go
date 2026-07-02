@@ -91,6 +91,13 @@ func Execute(ctx context.Context, base string, cfg types.RunConfig, mode string,
 	}
 	workdir := *cfg.Workdir
 
+	if err := PrepareRecon(&cfg, progress); err != nil {
+		if progress != nil {
+			progress <- fmt.Sprintf("error: %v", err)
+		}
+		return pipeline.RunOutput{Target: cfg.Target, Workdir: workdir}, err
+	}
+
 	if stub == nil {
 		var refs []models.ModelRef
 		for _, s := range cfg.Models {
