@@ -1,4 +1,4 @@
-<h1 align="center">🧠 NeuroSploit v3.5.3</h1>
+<h1 align="center">🧠 NeuroSploit v3.5.4</h1>
 
 <p align="center">
   <a href="https://github.com/JoasASantos/NeuroSploit/stargazers"><img src="https://img.shields.io/github/stars/JoasASantos/NeuroSploit?style=for-the-badge&logo=github&color=8b5cf6" alt="Stars"></a>
@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-3.5.3-blue?style=flat-square">
+  <img src="https://img.shields.io/badge/Version-3.5.4-blue?style=flat-square">
   <img src="https://img.shields.io/badge/Harness-Rust%20%7C%20tokio-e6b673?style=flat-square">
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square">
   <img src="https://img.shields.io/badge/MD%20Agents-329-red?style=flat-square">
@@ -24,12 +24,14 @@
 >
 > 📖 **New here? Read the [full Tutorial & User Guide →](TUTORIAL.md)** — every mode, flag, config and example explained.
 
-> 🆕 **New in v3.5.3 — Integrations:** connect **GitHub / GitLab** (clone private
-> repos, review a **Pull Request's** code, **watch** a branch and re-review on
-> every commit) and **Jira** (open a vulnerability **card per finding**). Toggle
-> them with **`/integrations`** in the REPL or `neurosploit integrations`. Full
-> setup in **[TUTORIAL-INTEGRATION.md](TUTORIAL-INTEGRATION.md)**.
-> *(v3.5.2 added the DEPTH doctrine + report-hygiene pass — see [RELEASE.md](RELEASE.md).)*
+> 🆕 **New in v3.5.4 — Robust attack chaining + fewer false positives:** a
+> multi-round, decision-driven **post-exploitation** engine takes each confirmed
+> foothold and expands new directions (cred reuse, privesc, lateral movement,
+> exfil, new surface), carrying **loot** forward across rounds (`--chain-depth`).
+> Validation is now **severity-aware** (High/Critical need ≥2 validators & ≥2/3
+> agreement) with an **adversarial refute pass** that drops findings that can't
+> withstand a skeptic.
+> *(v3.5.3 added GitHub/GitLab/Jira **[integrations](TUTORIAL-INTEGRATION.md)**; v3.5.2 the DEPTH doctrine + report-hygiene pass — see [RELEASE.md](RELEASE.md).)*
 
 ---
 

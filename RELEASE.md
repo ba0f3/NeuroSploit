@@ -1,3 +1,65 @@
+# NeuroSploit v3.5.4 — Release Notes
+
+**Release Date:** July 2026
+**Codename:** Robust Attack Chaining & False-Positive Reduction
+**License:** MIT
+**Credits:** Joas A Santos & Red Team Leaders
+
+---
+
+## TL;DR
+
+v3.5.4 makes NeuroSploit both **deeper** and **more precise**: a real multi-round
+**post-exploitation attack-chaining** engine that expands each foothold in new
+directions, plus stronger **false-positive** controls so what it reports is
+trustworthy.
+
+## Attack chaining (robust, decision-driven)
+
+Replaces the old single-shot chainer with **`attack_chain()`** — an iterative,
+per-foothold pivot engine:
+
+- **Per-foothold decisions.** Each round takes the newest confirmed footholds
+  (best-first, capped per round) and, for **each one**, an agent decides which
+  directions to expand and proves new impact: **post-exploitation** (loot
+  creds/keys/config/source), **credential reuse**, **privilege escalation**
+  (horizontal & vertical), **lateral movement** to adjacent services/hosts,
+  **data exfiltration**, and **new attack surface** the foothold exposes.
+- **Loot carried forward.** Credentials/tokens/hosts/endpoints discovered in one
+  round are passed to later rounds and reused (agent returns
+  `{"findings":[...],"loot":[...]}`), so the engine genuinely pivots in new
+  directions instead of re-testing the same spot.
+- **No pivoting off false positives.** Each round's new findings are validated
+  before they become the next round's footholds.
+- **Convergence.** Runs up to `chain_depth` rounds **or** stops when a round finds
+  nothing new (loop-until-dry).
+- **Control.** New `RunConfig.chain_depth` (default **2**) and a `--chain-depth`
+  flag on every engagement command (`0` disables).
+
+## False-positive reduction
+
+- **Robust verdict parsing** (`pool::parse_verdict`) — whitespace-insensitive,
+  checks explicit rejection first, counts only explicit confirmations; ambiguous
+  replies are *not* counted as confirmed. Replaces the fragile exact-JSON /
+  loose-`yes` matching.
+- **Severity-aware quorum** (`pool::quorum_confirmed`) — **High/Critical now need
+  ≥2 validators AND ≥2/3 agreement** (a single vote can no longer confirm a
+  Critical); lower severities need a strict majority. Single-model panels fall
+  back to majority so they aren't nuked.
+- **Adversarial refute pass** — every confirmed High/Critical is re-examined by a
+  skeptical panel that assumes false-positive; findings that can't withstand a
+  majority of skeptics are dropped.
+- **Stronger validator prompt** with an explicit false-positive checklist
+  (reflected-not-executed, version/banner guesses, self-XSS, error-as-injection,
+  thin evidence, inflated severity).
+
+## Notes
+
+- Additive and back-compatible; defaults keep behavior sensible if you change
+  nothing. Unit tests cover verdict parsing, quorum, and report-hygiene logic.
+
+---
+
 # NeuroSploit v3.5.3 — Release Notes
 
 **Release Date:** June 2026
