@@ -211,6 +211,10 @@ var toolArgvChecks = map[string]func(t *testing.T, argv []string){
 		assertArgvContains(t, argv, "nuclei", "-u", "https://example.com", "-s", "critical,high,medium")
 		assertArgvNotContains(t, argv, "-scritical")
 	},
+	"dalfox": func(t *testing.T, argv []string) {
+		assertArgvContains(t, argv, "dalfox", "url", "https://example.com")
+		assertArgvNotContains(t, argv, "-u ")
+	},
 	"netexec": func(t *testing.T, argv []string) {
 		assertArgvContains(t, argv, "netexec", "smb", "example.com")
 	},

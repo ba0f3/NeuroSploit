@@ -1,5 +1,7 @@
 name: dalfox
 command: dalfox
+args:
+  - url
 enabled: true
 short_description: XSS scanning and parameter analysis.
 description: |
@@ -9,8 +11,8 @@ parameters:
     type: string
     description: Target URL.
     required: true
-    flag: -u
-    format: flag
+    position: 0
+    format: positional
   - name: additional_args
     type: string
     description: Extra dalfox arguments.
