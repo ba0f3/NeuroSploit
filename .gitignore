@@ -105,7 +105,8 @@ data/repl_runs.json
 data/repl_history.txt
 .neurosploit/
 /tmp/*
-.cursor/
+.cursor/.ns*
+.cursor/mcp.json
 # Cloned source repos (whitebox/greybox from a git URL)
 repos/
 neurosploit-rs/repos/
@@ -115,3 +116,4 @@ neurosploit-go/internal/agents/agentsdata/**
 !neurosploit-go/internal/agents/agentsdata/.gitkeep
 .gortex
 .understand-anything
+.antigravity
